@@ -479,9 +479,20 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_VERSION="2026-10-31 19:13 UTC";
-let dbInfo="";
-const renderVer=()=>{$("ver").textContent="Application : "+APP_VERSION+" · Base : "+(dbInfo||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"))};
+const APP_BUILD="2026-10-31T19:17:06Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_REPO="bastgau/books-manager";
+const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
+let dbInfo="",appInfo="",appStale=false;
+const renderVer=()=>{$("ver").textContent="Application : "+(appInfo||new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"")+" · Base : "+(dbInfo||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"))};
+/* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
+async function appVersion(){
+  try{
+    const r=await fetch(`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=1`);
+    const [x]=r.ok?await r.json():[];
+    if(x){appInfo=fmtCommit(x);appStale=new Date(x.commit.committer.date)-new Date(APP_BUILD)>5*60*1000}
+  }catch(e){}
+  renderVer();
+}
 let verTimer=null;
 async function dbVersion(){
   const c=cfg();
@@ -489,7 +500,7 @@ async function dbVersion(){
   try{
     const r=await fetch(`https://api.github.com/repos/${c.repo}/commits?sha=${encodeURIComponent(c.branch)}&path=${encodeURIComponent("libraries/"+lib()+"-database.csv")}&per_page=1`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"}});
     const [x]=r.ok?await r.json():[];
-    dbInfo=x?new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")":"";
+    dbInfo=x?fmtCommit(x):"";
   }catch(e){dbInfo=""}
   renderVer();
 }
@@ -603,6 +614,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStor
 render();
 updateLabel();
 renderVer();
+appVersion();
 pull();
 if(!books.length)$("info").textContent="Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque";
 </script>
