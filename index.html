@@ -33,6 +33,7 @@ textarea{min-height:110px}
 .cand small{color:#666}
 #prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
+.cvl{height:150px;width:auto;border-radius:3px;box-shadow:0 2px 8px #0005}
 .cv{height:56px;width:auto;display:block;margin:0 auto;border-radius:2px;box-shadow:0 1px 3px #0004}
 .cv:not([src]){width:38px;background:#eee}
 table{table-layout:fixed;min-width:1290px}
@@ -45,6 +46,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 .rs{cursor:pointer;font-size:18px;text-align:center}
 #ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
 #ov b{display:block;margin-bottom:6px}
+#fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
 </style>
 </head>
 <body>
@@ -70,10 +72,16 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
 </main>
 
+<dialog id="dlgV">
+  <div id="vBody"></div>
+  <div class="row"><button id="vEdit">✎ Modifier</button><button id="vClose" class="sec">Fermer</button></div>
+</dialog>
 <dialog id="dlg">
   <h3 id="dlgTitle">Livre</h3>
   <div class="grid" id="form"></div>
+  <p id="fMsg"></p>
   <div class="row">
+    <button id="bBnf" class="sec" title="Corrige titre et auteur d'après le catalogue de la BnF">✨ Corriger via la BnF</button>
     <button id="bLookup" class="sec">🔎 Chercher les infos en ligne</button>
     <button id="bDel" class="danger">Supprimer</button>
     <button id="bCancel" class="sec">Annuler</button>
@@ -128,6 +136,103 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 <div id="prog"></div>
 
 <script>
+/* ---------- Règles de nommage : auteur "NOM Prénom", titre en casse typographique française ---------- */
+const TX=(()=>{
+const strip = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+const key = (s) => strip(s).toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").replace(/[^a-z0-9]+/g, " ").trim();
+const letters = (s) => s.replace(/[^A-Za-zÀ-ÿ]/g, "");
+const mostlyUpper = (s) => { const l = letters(s); if (l.length < 2) return false; return (l.match(/[A-ZÀ-ÖØ-Þ]/g) || []).length / l.length >= 0.6; };
+
+const PARTICLES = new Set(["de", "du", "des", "la", "le", "les", "van", "von", "der", "den", "di", "da", "del", "d'", "l'", "el", "al", "ben", "bin"]);
+const cap = (w) => w.split(/(-|')/).map((p, i, a) => (p === "-" || p === "'" || p === "" ? p : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())).join("");
+
+/** "DEFORGES REGINE" / "Guillaume Musso" / "Arces Amicie d'" -> "NOM Prénom" (casse seulement, sans accents) */
+function authorCase(raw) {
+  const s = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!s) return s;
+  const t = s.split(" ");
+  // particules finales ("BURON NICOLE DE") restent en minuscules à la fin
+  const tail = [];
+  while (t.length > 2 && PARTICLES.has(t[t.length - 1].toLowerCase())) tail.unshift(t.pop().toLowerCase());
+  // particules initiales font partie du nom ("DE ROSNAY TATIANA")
+  let i = 0; const nom = [];
+  while (i < t.length - 1 && PARTICLES.has(t[i].toLowerCase())) nom.push(t[i++].toUpperCase());
+  nom.push((t[i++] || "").toUpperCase());
+  const prenom = t.slice(i).map(cap);
+  return [nom.join(" "), prenom.join(" "), ...tail].filter(Boolean).join(" ");
+}
+
+/** "Deforges, Régine (1935-2014). Auteur du texte" -> "DEFORGES Régine" */
+function bnfAuthor(c) {
+  const m = String(c || "").replace(/\s*\(.*$/, "").replace(/\.\s.*$/, "").trim();
+  const [nom, ...pre] = m.split(",").map((x) => x.trim());
+  if (!nom) return "";
+  return [nom.toUpperCase(), pre.join(" ")].filter(Boolean).join(" ");
+}
+
+/** casse typographique française d'un titre (sans accents ajoutés) */
+function titleCase(raw) {
+  let s = String(raw || "").replace(/\s+/g, " ").trim();
+  const m = /^(\([^)]*\)\s*)/.exec(s); const prefix = m ? m[1] : ""; s = s.slice(prefix.length);
+  if (mostlyUpper(s)) {
+    s = s.toLowerCase();
+    s = s.replace(/\b(i{1,3}|iv|vi{0,3}|ix|xi{0,3})\b(?=\s*$|\s*[:,)])/g, (x) => x.toUpperCase()); // chiffres romains en fin
+  }
+  s = s.replace(/^a (?=(la|l'|le|les|mon|ma|ton|ta|son|sa|nos|vos|leurs|tout|toute|tous|toutes|bientôt|demain|plus|moi)\b)/i, "À ");
+  s = s.replace(/^([^\p{L}\p{N}]*)(\p{Ll})/u, (_, p, c) => p + c.toUpperCase());
+  s = s.replace(/\s+([,.])/g, "$1").replace(/([,.;:!?])(?=[^\s\d"')\]»,.!?;:])/g, "$1 ").replace(/\s*([;:!?])/g, " $1");
+  s = s.replace(/\s+/g, " ").trim();
+  return prefix + s;
+}
+
+/** nombre de titres de série à retirer avant recherche : "(3) ", "2 ", "A2 - ", "2C - " */
+const searchTitle = (t) => String(t || "").replace(/^\s*\([^)]*\)\s*/, "").replace(/^\s*[A-Za-z]?\d[A-Za-z]?\s*[-–]?\s+(?=\S)/, "").replace(/\s*\btome\s*\d+\b.*$/i, "").trim();
+
+const dc = (xml, tag) => [...xml.matchAll(new RegExp(`<dc:${tag}>([^<]*)</dc:${tag}>`, "g"))].map((m) => m[1].replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+async function bnfSearch(title, author) {
+  const w = (s) => key(s).split(" ").filter((x) => x.length > 1);
+  const tw = w(title).slice(0, 6).join(" "), aw = w(author).slice(0, 2).join(" ");
+  if (!tw) return [];
+  const q = `bib.title all "${tw}"` + (aw ? ` and bib.author all "${aw}"` : "");
+  const url = `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=${encodeURIComponent(q)}&recordSchema=dublincore&maximumRecords=20`;
+  for (let k = 0; k < 3; k++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(25000) });
+      if (!r.ok) throw new Error(r.status);
+      const x = await r.text();
+      return x.split("<srw:record>").slice(1).map((rec) => ({ title: dc(rec, "title")[0] || "", creator: dc(rec, "creator")[0] || "" }));
+    } catch { await new Promise((r) => setTimeout(r, 800 * (k + 1))); }
+  }
+  return null;
+}
+/** titre principal d'une notice BnF : avant " / " puis avant " : " */
+const bnfMain = (t) => t.split(" / ")[0].split(" : ")[0].replace(/\s*\[[^\]]*\]\s*/g, " ").replace(/\.\s*\[?\d+\]?\s*$/, "").trim();
+
+const caps = (s) => (s.match(/[A-ZÀ-Þ]/g) || []).length;
+const top = (cnt) => Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || caps(a) - caps(b))[0] || null;
+/** titre BnF le plus fréquent parmi les notices dont le titre principal correspond (accents/casse ignorés) */
+function pickTitle(cands, core) {
+  const cnt = {};
+  for (const c of cands) if (key(c.t) === key(core)) cnt[c.t] = (cnt[c.t] || 0) + 1;
+  return top(cnt);
+}
+const tokens = (s) => key(s).split(" ").filter(Boolean).sort().join(" ");
+/** auteur BnF "NOM Prénom" dont les mots (sans accents) sont exactement ceux de l'auteur saisi */
+function pickAuthor(cands, db) {
+  const want = tokens(db), cnt = {};
+  for (const c of cands) { const a = bnfAuthor(c.c); if (a && tokens(a) === want) cnt[a] = (cnt[a] || 0) + 1; }
+  return top(cnt);
+}
+/** remet le préfixe de série "(1) " / "2 - " et le suffixe " tome 3" autour du titre BnF */
+function rebuildTitle(original, core, picked) {
+  const i = original.toLowerCase().indexOf(core.toLowerCase());
+  if (i < 0) return picked;
+  const prefix = original.slice(0, i), suffix = original.slice(i + core.length);
+  return prefix + picked.replace(/^\p{Ll}/u, (c) => c.toUpperCase()) + suffix.toLowerCase();
+}
+
+return {strip,key,mostlyUpper,authorCase,bnfAuthor,titleCase,searchTitle,bnfSearch,bnfMain,pickTitle,pickAuthor,rebuildTitle};
+})();
 const coverG=b=>b.isbn?`https://books.google.com/books/content?vid=ISBN${b.isbn}&printsec=frontcover&img=1&zoom=1`:"";
 /* ordre : fichier du dépôt GitHub (chargé à part) > URL enregistrée > Open Library > Google Books */
 const coverQ=(b,s)=>[b.couverture,b.isbn&&`https://covers.openlibrary.org/b/isbn/${b.isbn}-${s}.jpg?default=false`,coverG(b)].filter(Boolean);
@@ -182,7 +287,7 @@ function render(){
   const cols=COLS.filter(([k])=>k!=="couverture");
   $("thead").innerHTML='<th style="width:56px"></th>'+cols.map(([k,l])=>`<th data-k="${k}" style="width:${WIDTHS[k]||"auto"}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
-  const filtering=!!q||$("fNoIsbn").checked||$("fNoRes").checked||$("fUnread").checked;
+  const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
   let list=books.map((b,i)=>[b,i]).filter(([b])=>
     (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
     (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture));
@@ -227,7 +332,21 @@ $("tbody").addEventListener("click",e=>{const t=e.target.closest(".rs");if(!t)re
 document.addEventListener("click",e=>{if(ovPinned&&!e.target.closest("#ov"))hideOv()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")hideOv()});
 $("thead").onclick=e=>{const k=e.target.closest("th")?.dataset.k;if(!k)return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render()};
-$("tbody").ondblclick=e=>{const i=e.target.closest("tr")?.dataset.i;if(i!=null)edit(+i)};
+$("tbody").addEventListener("click",e=>{const tr=e.target.closest("tr[data-i]");if(tr&&!e.target.closest(".rs"))view(+tr.dataset.i)});
+let vIdx=null;
+function view(i){
+  vIdx=i;const b=books[i];
+  const f=(l,v)=>v?`<div><span class="muted">${l}</span> ${esc(v)}</div>`:"";
+  $("vBody").innerHTML=`<div style="display:flex;gap:16px;align-items:flex-start">
+    <div style="min-width:96px">${coverImg(b,"M","cvl")}</div>
+    <div><h3 style="margin:0 0 4px">${esc(b.titre)}</h3><div style="font-size:15px;margin-bottom:8px">${esc(b.auteur)}</div>
+    ${f("Lu le",b.date_lecture)}${f("Pages",b.nb_pages)}${f("Localisation",b.localisation)}${f("ISBN",b.isbn)}${f("Acheté le",b.date_achat)}${f("Entré le",b.date_entree)}</div></div>
+    ${b.resume?`<div style="margin-top:12px;white-space:pre-wrap;line-height:1.5">${esc(b.resume)}</div>`:'<p class="muted">Pas de résumé.</p>'}`;
+  const im=$("vBody").querySelector("img");if(im)loadCover(im);
+  $("dlgV").showModal();
+}
+$("vClose").onclick=()=>$("dlgV").close();
+$("vEdit").onclick=()=>{$("dlgV").close();edit(vIdx)};
 ["q","fNoIsbn","fNoRes","fUnread"].forEach(id=>$(id).addEventListener("input",render));
 
 /* ---------- Édition ---------- */
@@ -238,13 +357,28 @@ function edit(i){
   $("form").insertAdjacentHTML("beforeend",'<label>Aperçu</label><div id="fPrev"></div>');
   const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=$("fPrev").querySelector("img");if(im)loadCover(im)};
   $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
+  $("fMsg").textContent="Règles : auteur au format NOM Prénom ; titre en minuscules, sauf la 1re lettre et les noms propres.";
+  $("f_auteur").onblur=()=>{const v=$("f_auteur").value.trim();if(v&&(TX.mostlyUpper(v)||v===v.toLowerCase()))$("f_auteur").value=TX.authorCase(v)};
+  $("f_titre").onblur=()=>{$("f_titre").value=TX.titleCase($("f_titre").value)};
   $("bDel").style.display=i==null?"none":"";
   $("dlg").showModal();
 }
 const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,$("f_"+k).value.trim()]));
+$("bBnf").onclick=async()=>{
+  const t=$("f_titre").value.trim(),a=$("f_auteur").value.trim();
+  if(!t)return $("fMsg").textContent="Saisissez d'abord un titre.";
+  $("fMsg").textContent="Recherche dans le catalogue de la BnF…";
+  const core=TX.searchTitle(t),res=await TX.bnfSearch(core,a);
+  if(!res)return $("fMsg").textContent="BnF injoignable, réessayez plus tard.";
+  const c=res.map(r=>({t:TX.bnfMain(r.title),c:r.creator})),pt=TX.pickTitle(c,core),pa=a?TX.pickAuthor(c,a):null;
+  const out=[];
+  if(pt){const n=TX.rebuildTitle(t,core,pt);if(n!==t){$("f_titre").value=n;out.push("titre")}}
+  if(pa&&pa!==a){$("f_auteur").value=pa;out.push("auteur")}
+  $("fMsg").textContent=out.length?"Corrigé d'après la BnF : "+out.join(" et ")+".":(pt||pa?"Déjà conforme à la BnF.":"Aucune notice BnF correspondante : vérifiez à la main.");
+};
 $("bAdd").onclick=()=>edit(null);
 $("bCancel").onclick=()=>$("dlg").close();
-$("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
+$("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.titleCase(v.titre);if(v.auteur&&(TX.mostlyUpper(v.auteur)||v.auteur===v.auteur.toLowerCase()))v.auteur=TX.authorCase(v.auteur);if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
 $("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
 
 /* ---------- Import / export ---------- */
