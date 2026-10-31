@@ -508,7 +508,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T21:01:58Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T21:06:51Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -686,26 +686,30 @@ $("shGo").onclick=async()=>{
 };
 $("shCopy").onclick=()=>{const v=$("shLink").value;if(!v)return;navigator.clipboard?.writeText(v);$("shLink").select();shMsg("Lien copié.")};
 async function applyCfgHash(){
-  const m=/^#cfg=(.+)$/.exec(location.hash);if(!m)return;
-  const clean=()=>history.replaceState(null,"",location.href.split("#")[0]);
+  const m=/^#cfg=(.+)$/.exec(location.hash);if(!m)return false;
+  /* vraie navigation vers la page de l'application (sans le lien) : F5 ou « Précédent » ne rejouent pas la configuration.
+     Renvoie true : la page va se recharger, inutile de continuer le démarrage ici. */
+  const goApp=()=>{location.replace(location.pathname+location.search);return true};
+  let o;
   try{
-    const o=await unsealCfg(m[1],()=>prompt("Ce lien est protégé. Mot de passe :"));
+    o=await unsealCfg(m[1],()=>prompt("Ce lien est protégé. Mot de passe :"));
     if(!o||o.v!==1||!o.repo||!o.token||!UUID.test(o.lib||"")||!o.exp)throw new Error("configuration invalide");
-    if(Date.now()>o.exp){clean();alert("Ce lien de configuration a expiré (il est valable 24 h). Demandez-en un nouveau.");return}
-    const had=cfg().repo&&lib();
-    if(!confirm("Appliquer la configuration reçue ?\n\nDépôt : "+o.repo+"\nBibliothèque : "+o.lib+"\nLien valable jusqu'au "+fmtDT(o.exp)+(had?"\n\n⚠ Elle REMPLACE la configuration actuelle (dépôt "+cfg().repo+", bibliothèque "+lib().slice(0,8)+"…), y compris le jeton. Les modifications non envoyées seront d'abord enregistrées.":""))){clean();return}
-    if(had)await flushCurrent();                          // modifications en attente de la bibliothèque actuelle : envoyées avec l'ancien accès
-    localStorage.setItem(SK+"repo",o.repo);localStorage.setItem(SK+"token",o.token);if(o.branch)localStorage.setItem(SK+"branch",o.branch);if(o.gkey)localStorage.setItem("livrotheque.gkey",o.gkey);
-    useLib(o.lib);clean();
-    await loadMeta(o.lib);updateLabel();   // récupère aussi nom, description et propriétaire de la bibliothèque
-  }catch(e){clean();alert("Lien de configuration illisible ou mot de passe incorrect.")}
+  }catch(e){alert("Lien de configuration illisible ou mot de passe incorrect.");return goApp()}
+  if(Date.now()>o.exp){alert("Ce lien de configuration a expiré (il est valable 24 h). Demandez-en un nouveau.");return goApp()}
+  const had=cfg().repo&&lib();
+  if(!confirm("Appliquer la configuration reçue ?\n\nDépôt : "+o.repo+"\nBibliothèque : "+o.lib+"\nLien valable jusqu'au "+fmtDT(o.exp)+(had?"\n\n⚠ Elle REMPLACE la configuration actuelle (dépôt "+cfg().repo+", bibliothèque "+lib().slice(0,8)+"…), y compris le jeton. Les modifications non envoyées seront d'abord enregistrées.":"")))return goApp();
+  if(had)await flushCurrent();                          // modifications en attente de la bibliothèque actuelle : envoyées avec l'ancien accès
+  localStorage.setItem(SK+"repo",o.repo);localStorage.setItem(SK+"token",o.token);if(o.branch)localStorage.setItem(SK+"branch",o.branch);if(o.gkey)localStorage.setItem("livrotheque.gkey",o.gkey);
+  useLib(o.lib);
+  await loadMeta(o.lib);updateLabel();                   // nom, description et propriétaire, enregistrés avant la redirection
+  return goApp();
 }
 
 render();
 updateLabel();
 renderVer();
 appVersion();
-applyCfgHash().then(pull);
+applyCfgHash().then(redirected=>{if(!redirected)pull()});
 if(!books.length&&!lib())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
 </body>
