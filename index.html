@@ -45,6 +45,8 @@ textarea{min-height:110px}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
 .cvl{height:150px;width:auto;border-radius:3px;box-shadow:0 2px 8px #0005}
 .warn{color:#c77700;font-weight:700}
+.dup{color:#2a6fb5;font-weight:700}
+.grid input[type=checkbox]{width:auto;justify-self:start;margin:2px 0}
 .cv{height:56px;width:auto;display:block;margin:0 auto;border-radius:2px;box-shadow:0 1px 3px #0004}
 .cv:not([src]){width:38px;background:#eee}
 table{table-layout:fixed;min-width:1290px}
@@ -91,6 +93,7 @@ footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;color:#e9d
     <label><input type="checkbox" id="fNoRes"> sans résumé</label>
     <label><input type="checkbox" id="fUnread"> non lus</label>
     <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
+    <label><input type="checkbox" id="fDup"> ⧉ doublons</label>
   </div>
   <div class="brk"></div>
   <button id="bAdd">+ Ajouter</button>
@@ -166,6 +169,15 @@ footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;color:#e9d
       <label>Propriétaire</label><input id="sOwner">
     </div>
     <div class="row"><button id="sCopy" class="sec">Copier l'UUID</button><button id="sMeta" class="sec">Enregistrer les infos</button></div>
+  </fieldset>
+  <fieldset><legend>Partager la configuration (lien valable 24 h)</legend>
+    <div class="grid">
+      <label>Mot de passe</label><input id="shPass" type="password" placeholder="facultatif, chiffre le lien" autocomplete="new-password">
+      <label>Clé Google</label><label style="font-weight:normal"><input type="checkbox" id="shKey"> inclure dans le lien</label>
+    </div>
+    <div class="row" style="justify-content:flex-start"><button id="shGo" class="sec">Générer le lien</button><button id="shCopy" class="sec">Copier</button></div>
+    <input id="shLink" readonly placeholder="Le lien apparaît ici" style="width:100%;margin-top:6px;padding:6px;border:1px solid #bbb;border-radius:4px">
+    <p id="shMsg" style="font-size:12px;margin:6px 0 0;min-height:1.2em"></p>
   </fieldset>
   <fieldset><legend>Données et outils</legend>
     <div class="row" style="justify-content:flex-start;margin-top:4px">
@@ -286,10 +298,11 @@ function render(){
   const W=mobile?{auteur:"34%",titre:"auto",resume:"46px"}:WIDTHS;
   $("thead").innerHTML=`<th style="width:${mobile?52:56}px"></th>`+cols.map(([k,l])=>`<th data-k="${k}" style="width:${W[k]||"auto"}">${mobile&&k==="resume"?"📝":l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
+  const dupSet=dupIndexes();
   const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
-  let list=books.map((b,i)=>[b,i]).filter(([b])=>
+  let list=books.map((b,i)=>[b,i]).filter(([b,i])=>
     (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
-    (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture)&&(!$("fCheck").checked||b.a_verifier));
+    (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture)&&(!$("fCheck").checked||b.a_verifier)&&(!$("fDup").checked||dupSet.has(i)));
   const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):/^(auteur|titre)$/.test(sortKey)?norm(b[sortKey]).toLowerCase():String(b[sortKey]).toLowerCase();
   list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir||String(a[0].titre).localeCompare(String(b[0].titre))});
   const grouped=/^(auteur|titre)$/.test(sortKey);
@@ -297,7 +310,7 @@ function render(){
   letters=Object.keys(counts);
   const row=([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+cols.map(([k])=>
     k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
-    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&b.a_verifier?`<td title="À vérifier : ${esc(b[k])}"><span class="warn">⚠</span> ${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
+    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&(b.a_verifier||dupSet.has(i))?`<td title="${b.a_verifier?"À vérifier. ":""}${dupSet.has(i)?"Doublon possible. ":""}${esc(b[k])}">${b.a_verifier?'<span class="warn">⚠</span> ':""}${dupSet.has(i)?'<span class="dup">⧉</span> ':""}${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
   $("foldbar").className=letters.length?"":"off";$("foldbar").title=letters.length?"":"Disponible avec le tri par auteur ou par titre";
   let out="",cur="";
   for(const it of list){
@@ -310,7 +323,7 @@ function render(){
   }
   $("tbody").innerHTML=out;
   hydrateCovers($("tbody"));
-  $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier`;
+  $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier · ${dupSet.size} en doublon`;
   if(typeof setHH==="function")setHH();
 }
 $("foldbar").addEventListener("click",e=>{const a=e.target.closest("a.foldlink");if(!a)return;e.preventDefault();if(!letters.length)return;if(a.dataset.a==="open")letters.forEach(l=>expanded.add(l));else expanded.clear();render()});
@@ -350,14 +363,15 @@ $("vClose").onclick=()=>$("dlgV").close();
 $("vOk").onclick=()=>{books[vIdx].a_verifier="";save();render();$("dlgV").close()};
 $("vEdit").onclick=()=>{$("dlgV").close();edit(vIdx)};
 $("q").addEventListener("input",render);
-["fNoIsbn","fNoRes","fUnread","fCheck"].forEach(id=>$(id).addEventListener("input",render)); /* un filtre ne change pas l'état plié/déplié des lettres */
+["fNoIsbn","fNoRes","fUnread","fCheck","fDup"].forEach(id=>$(id).addEventListener("input",render)); /* un filtre ne change pas l'état plié/déplié des lettres */
 
 /* ---------- Édition ---------- */
 function edit(i){
   cur=i; const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
-  $("form").innerHTML=COLS.map(([k,l])=>`<label>${l}</label>`+(k==="a_verifier"?`<input type="checkbox" id="f_${k}" ${b[k]?"checked":""} style="width:auto">`:k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
-  $("form").insertAdjacentHTML("beforeend",'<label>Aperçu</label><div id="fPrev"></div>');
+  $("form").innerHTML=COLS.filter(([k])=>k!=="a_verifier").map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
+  $("form").insertAdjacentHTML("beforeend",`<label>Aperçu</label><div id="fPrev"></div><label>À vérifier</label><input type="checkbox" id="f_a_verifier" ${b.a_verifier?"checked":""}>`);
+  if(i==null&&!$("f_date_entree").value){const d=new Date(),p=n=>String(n).padStart(2,"0");$("f_date_entree").value=`${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`}   /* nouveau livre : entré aujourd'hui */
   const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=$("fPrev").querySelector("img");if(im)loadCover(im)};
   $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
   $("fMsg").textContent="Règles : auteur au format NOM Prénom ; titre en minuscules, sauf la 1re lettre et les noms propres.";
@@ -369,7 +383,14 @@ function edit(i){
 const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,k==="a_verifier"?($("f_"+k).checked?"1":""):$("f_"+k).value.trim()]));
 $("bAdd").onclick=()=>edit(null);
 $("bCancel").onclick=()=>$("dlg").close();
-$("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.titleCase(v.titre);if(v.auteur&&(TX.mostlyUpper(v.auteur)||v.auteur===v.auteur.toLowerCase()))v.auteur=TX.authorCase(v.auteur);if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
+$("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.titleCase(v.titre);if(v.auteur&&(TX.mostlyUpper(v.auteur)||v.auteur===v.auteur.toLowerCase()))v.auteur=TX.authorCase(v.auteur);
+  /* doublon possible : on prévient si le livre est nouveau ou si son ISBN / auteur / titre a changé */
+  const before=cur==null?null:books[cur];
+  if(!before||before.isbn!==v.isbn||before.auteur!==v.auteur||before.titre!==v.titre){
+    const d=findDups(v,cur);
+    if(d.length&&!confirm("Doublon possible :\n"+d.slice(0,5).map(b=>"• "+b.auteur+" — "+b.titre+(b.isbn?" ("+b.isbn+")":"")).join("\n")+(d.length>5?"\n… et "+(d.length-5)+" autre(s)":"")+"\n\nEnregistrer quand même ?"))return;
+  }
+  if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
 $("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
 
 /* ---------- Import / export ---------- */
@@ -406,6 +427,14 @@ function gbItem(v){const i=v.volumeInfo||{};
   const id=(i.industryIdentifiers||[]).find(x=>x.type==="ISBN_13")||(i.industryIdentifiers||[])[0];
   return {src:"Google Books",titre:[i.title,i.subtitle].filter(Boolean).join(" : "),auteur:(i.authors||[]).join(", "),nb_pages:i.pageCount||"",
     isbn:id?id.identifier:"",resume:i.description||"",cover:(i.imageLinks?.smallThumbnail||"").replace("http:","https:"),editeur:i.publisher||""}}
+/* ---------- Doublons : même ISBN, ou même auteur + titre (accents, casse et ponctuation ignorés) ---------- */
+const nk=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+const dupKeys=b=>[b.isbn&&"i:"+b.isbn,(nk(b.titre)&&"t:"+nk(b.auteur)+"|"+nk(b.titre))].filter(Boolean);
+function dupIndexes(){
+  const m=new Map();books.forEach((b,i)=>dupKeys(b).forEach(k=>{(m.get(k)||m.set(k,[]).get(k)).push(i)}));
+  const s=new Set();m.forEach(a=>{if(a.length>1)a.forEach(i=>s.add(i))});return s;
+}
+function findDups(v,self){const ks=new Set(dupKeys(v));return books.filter((b,i)=>i!==self&&dupKeys(b).some(k=>ks.has(k)))}
 const gKey=()=>localStorage.getItem("livrotheque.gkey")||"";
 $("bKey").onclick=()=>{const k=prompt("Clé API Google Books (laisser vide pour désactiver Google Books) :",gKey());if(k!==null){localStorage.setItem("livrotheque.gkey",k.trim());alert(k.trim()?"Clé enregistrée.":"Google Books désactivé.")}};
 async function gbSearch(q){if(!gKey())return [];try{return ((await jget(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=8&langRestrict=fr&key=${encodeURIComponent(gKey())}`)).items||[]).map(gbItem)}catch(e){return []}}
@@ -474,7 +503,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T20:25:23Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T20:47:24Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -611,11 +640,55 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStor
 const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
 window.addEventListener("resize",setHH);setHH();
 if(window.matchMedia){const mq=matchMedia("(max-width:900px)");(mq.addEventListener?mq.addEventListener.bind(mq,"change"):mq.addListener.bind(mq))(()=>render())}
+/* ---------- Lien de configuration (dépôt, jeton, bibliothèque) valable 24 h ----------
+   La date limite est vérifiée par l'application à l'ouverture du lien ; GitHub, lui, ne connaît pas cette limite :
+   le jeton reste valable jusqu'à sa propre expiration. Le lien est dans le fragment (#), jamais envoyé au serveur. */
+const CFG_TTL=24*3600*1000;
+const b64u=u=>btoa(String.fromCharCode.apply(null,u)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const unb64u=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+async function aesKey(pass,salt,usage){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,usage)}
+async function sealCfg(obj,pass){
+  const data=new TextEncoder().encode(JSON.stringify(obj));if(!pass)return "p."+b64u(data);
+  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aesKey(pass,salt,["encrypt"]),data));
+  return "e."+b64u(salt)+"."+b64u(iv)+"."+b64u(ct);
+}
+async function unsealCfg(s,askPass){
+  const p=s.split(".");
+  if(p[0]==="p")return JSON.parse(new TextDecoder().decode(unb64u(p[1])));
+  if(p[0]==="e"){const pass=askPass();if(!pass)throw new Error("mot de passe requis");
+    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(p[2])},await aesKey(pass,unb64u(p[1]),["decrypt"]),unb64u(p[3]));return JSON.parse(new TextDecoder().decode(pt))}
+  throw new Error("format inconnu");
+}
+const fmtDT=t=>new Date(t).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});
+const shMsg=(t,bad)=>{$("shMsg").textContent=t;$("shMsg").style.color=bad?"#c33":"#285"};
+$("shGo").onclick=async()=>{
+  const c=cfg();
+  if(!c.repo||!c.token||!lib())return shMsg("Ouvrez d'abord une bibliothèque (dépôt, jeton et UUID requis).",1);
+  const exp=Date.now()+CFG_TTL,pass=$("shPass").value,o={v:1,repo:c.repo,token:c.token,branch:c.branch,lib:lib(),exp};
+  if($("shKey").checked&&gKey())o.gkey=gKey();
+  try{$("shLink").value=location.href.split("#")[0]+"#cfg="+await sealCfg(o,pass)}catch(e){return shMsg("Génération impossible : "+e.message,1)}
+  shMsg("Valable jusqu'au "+fmtDT(exp)+(pass?". Lien chiffré : le mot de passe est demandé à l'ouverture (transmettez-le séparément).":". Attention : lien non chiffré, il contient votre jeton GitHub."));
+};
+$("shCopy").onclick=()=>{const v=$("shLink").value;if(!v)return;navigator.clipboard?.writeText(v);$("shLink").select();shMsg("Lien copié.")};
+async function applyCfgHash(){
+  const m=/^#cfg=(.+)$/.exec(location.hash);if(!m)return;
+  const clean=()=>history.replaceState(null,"",location.href.split("#")[0]);
+  try{
+    const o=await unsealCfg(m[1],()=>prompt("Ce lien est protégé. Mot de passe :"));
+    if(!o||o.v!==1||!o.repo||!o.token||!UUID.test(o.lib||"")||!o.exp)throw new Error("configuration invalide");
+    if(Date.now()>o.exp){clean();alert("Ce lien de configuration a expiré (il est valable 24 h). Demandez-en un nouveau.");return}
+    if(!confirm("Appliquer la configuration reçue ?\n\nDépôt : "+o.repo+"\nBibliothèque : "+o.lib+"\nLien valable jusqu'au "+fmtDT(o.exp))){clean();return}
+    localStorage.setItem(SK+"repo",o.repo);localStorage.setItem(SK+"token",o.token);if(o.branch)localStorage.setItem(SK+"branch",o.branch);if(o.gkey)localStorage.setItem("livrotheque.gkey",o.gkey);
+    useLib(o.lib);clean();
+  }catch(e){clean();alert("Lien de configuration illisible ou mot de passe incorrect.")}
+}
+
 render();
 updateLabel();
 renderVer();
 appVersion();
-pull();
+applyCfgHash().then(pull);
 if(!books.length&&!lib())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
 </body>
