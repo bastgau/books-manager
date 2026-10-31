@@ -22,7 +22,9 @@ header label{font-size:13px;white-space:nowrap}
 #foldbar.off a{color:#aaa;cursor:default;text-decoration:none}
 a.foldlink{color:#5b3a29;font-size:13px;text-decoration:underline;cursor:pointer}
 #info{font-size:13px;opacity:.9}
-main{padding:12px 16px 8px;flex:0 0 auto}
+main{padding:12px 16px 0;flex:1 1 auto;display:flex;flex-direction:column}
+#tail{flex:1 1 auto;background:#fff;border-bottom:1px solid #e6e0d4}
+main>table{flex:none}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{padding:6px 8px;border-bottom:1px solid #e6e0d4;text-align:left;vertical-align:middle}
 th{background:#ece5d6;cursor:pointer;position:sticky;top:var(--hh,52px);user-select:none;white-space:nowrap}
@@ -56,7 +58,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
 #ov b{display:block;margin-bottom:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
-footer#ver{flex:1 0 auto;padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
+footer#ver{flex:none;padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
 #bnfOpts{font-size:13px;margin:6px 0 0}#bnfOpts label{margin-right:12px;white-space:nowrap}
 </style>
 </head>
@@ -82,6 +84,7 @@ footer#ver{flex:1 0 auto;padding:10px 16px;font-size:12px;color:#7a6a58;backgrou
 <main>
 <div id="foldbar"><a class="foldlink" data-a="open" href="#">Tout déplier</a><span class="sep">|</span><a class="foldlink" data-a="close" href="#">Tout replier</a></div>
 <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
+<div id="tail"></div>
 </main>
 <footer id="ver"></footer>
 
@@ -578,7 +581,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T20:00:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T20:06:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
