@@ -33,6 +33,7 @@ textarea{min-height:110px}
 .cand small{color:#666}
 #prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
+.cv{height:56px;width:auto;display:block;border-radius:2px;box-shadow:0 1px 3px #0004}
 </style>
 </head>
 <body>
@@ -114,7 +115,13 @@ fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-we
 <div id="prog"></div>
 
 <script>
-const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"]];
+const coverUrl=(b,s="M")=>b.couverture||(b.isbn?`https://covers.openlibrary.org/b/isbn/${b.isbn}-${s}.jpg?default=false`:"");
+const coverG=b=>b.isbn?`https://books.google.com/books/content?vid=ISBN${b.isbn}&printsec=frontcover&img=1&zoom=1`:"";
+const coverImg=(b,s,cls="cv")=>{const u=coverUrl(b,s);return u?`<img class="${cls}" loading="lazy" referrerpolicy="no-referrer" src="${esc(u)}" data-g="${esc(coverG(b))}" onerror="covErr(this)" onload="covOk(this)">`:""};
+/* repli Open Library -> Google Books ; l'image "non disponible" de Google fait 128x170 */
+function covErr(i){if(i.dataset.g&&!i.dataset.t){i.dataset.t=1;i.src=i.dataset.g}else i.style.display="none"}
+function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"}
+const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"],["couverture","Pochette (URL)"]];
 const KEY="livrotheque.v1", SK="livrotheque.sync.";
 const lib=()=>localStorage.getItem(SK+"lib")||"";
 const ck=()=>KEY+"."+(lib()||"local");
@@ -142,14 +149,14 @@ function toCsv(){
 
 /* ---------- Affichage ---------- */
 function render(){
-  $("thead").innerHTML=COLS.map(([k,l])=>`<th data-k="${k}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
+  $("thead").innerHTML="<th></th>"+COLS.filter(([k])=>k!=="couverture").map(([k,l])=>`<th data-k="${k}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
   let list=books.map((b,i)=>[b,i]).filter(([b])=>
     (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
     (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture));
   const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):String(b[sortKey]).toLowerCase();
   list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir});
-  $("tbody").innerHTML=list.slice(0,1500).map(([b,i])=>`<tr data-i="${i}">`+COLS.map(([k])=>
+  $("tbody").innerHTML=list.slice(0,1500).map(([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+COLS.filter(([k])=>k!=="couverture").map(([k])=>
     k==="resume"?`<td class="r">${esc(b.resume.slice(0,160))}${b.resume.length>160?"…":""}</td>`:
     k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:`<td>${esc(b[k])}</td>`).join("")+"</tr>").join("");
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus`;
@@ -163,6 +170,9 @@ function edit(i){
   cur=i; const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
   $("form").innerHTML=COLS.map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
+  $("form").insertAdjacentHTML("beforeend",'<label>Aperçu</label><div id="fPrev"></div>');
+  const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv")};
+  $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
   $("bDel").style.display=i==null?"none":"";
   $("dlg").showModal();
 }
@@ -197,7 +207,7 @@ async function olIsbn(isbn){
         let desc=e.description;if(!desc&&w)desc=(await jget(`https://openlibrary.org${w}.json`)).description;
         resume=typeof desc==="object"?desc?.value||"":desc||"";}catch(e){}
       out.push({src:"Open Library",titre:[d.title,d.subtitle].filter(Boolean).join(" : "),auteur:(d.authors||[]).map(a=>a.name).join(", "),
-        nb_pages:d.number_of_pages||"",isbn,resume,cover:d.cover?.small||"",editeur:(d.publishers||[]).map(p=>p.name).join(", ")});
+        nb_pages:d.number_of_pages||"",isbn,resume,cover:d.cover?.medium||d.cover?.small||"",editeur:(d.publishers||[]).map(p=>p.name).join(", ")});
     }
   }catch(e){}
   return out;
@@ -222,6 +232,7 @@ async function lookup(isbn,titre,auteur){
 }
 function applyTo(target,c,over){
   for(const k of ["titre","auteur","nb_pages","isbn","resume"]) if(c[k]&&(over||!target[k])) target[k]=String(c[k]);
+  if(c.cover&&(over||!target.couverture)) target.couverture=c.cover;
 }
 
 /* fenêtre de recherche manuelle */
@@ -236,6 +247,7 @@ $("cGo").onclick=async()=>{
 $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
   const c=cands[+el.dataset.i],cur_=formVals();applyTo(cur_,c,$("cOver").checked);
   for(const k in cur_) $("f_"+k).value=cur_[k];
+  $("f_couverture").oninput();
   $("dlgC").close();
 };
 
