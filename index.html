@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Ma Livrothèque</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;color:#222;background:#f4f1ea}
+header{background:#5b3a29;color:#fff;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+header h1{font-size:18px;margin:0 12px 0 0}
+header input[type=search]{padding:6px 10px;border:0;border-radius:4px;min-width:240px}
+button{padding:6px 12px;border:0;border-radius:4px;background:#d9b382;color:#2b1a10;cursor:pointer;font:inherit}
+button:hover{background:#e8c796}button.sec{background:#eee}button.danger{background:#e57373;color:#fff}
+header label{font-size:13px}
+#info{margin-left:auto;font-size:13px;opacity:.9}
+main{padding:12px 16px}
+table{border-collapse:collapse;width:100%;background:#fff}
+th,td{padding:6px 8px;border-bottom:1px solid #e6e0d4;text-align:left;vertical-align:top}
+th{background:#ece5d6;cursor:pointer;position:sticky;top:52px;user-select:none;white-space:nowrap}
+tr:hover td{background:#faf5ea}
+td.r{max-width:380px;color:#555;font-size:12px}
+.tag{display:inline-block;background:#e4eed8;border-radius:10px;padding:0 7px;font-size:12px}
+.muted{color:#999}
+dialog{border:0;border-radius:8px;padding:18px;width:min(760px,95vw);box-shadow:0 8px 40px #0006;max-height:92vh;overflow:auto}
+dialog::backdrop{background:#0006}
+.grid{display:grid;grid-template-columns:140px 1fr;gap:8px 10px;align-items:start}
+.grid input,.grid textarea{width:100%;padding:6px;border:1px solid #bbb;border-radius:4px;font:inherit}
+textarea{min-height:110px}
+.row{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap}
+.cand{display:flex;gap:10px;padding:8px;border:1px solid #ddd;border-radius:6px;margin:6px 0;cursor:pointer;background:#fff}
+.cand:hover{background:#fff6e0}.cand img{width:48px;height:70px;object-fit:cover;background:#eee}
+.cand small{color:#666}
+#prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Ma Livrothèque</h1>
+  <input type="search" id="q" placeholder="Rechercher (auteur, titre, résumé, ISBN…)">
+  <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
+  <label><input type="checkbox" id="fNoRes"> sans résumé</label>
+  <label><input type="checkbox" id="fUnread"> non lus</label>
+  <button id="bAdd">+ Ajouter</button>
+  <button id="bImport" class="sec">Importer CSV</button>
+  <button id="bExport" class="sec">Exporter CSV</button>
+  <button id="bKey" class="sec" title="Clé API Google Books (gratuite)">Clé Google</button>
+  <button id="bAuto" class="sec" title="Pour tous les livres qui ont un ISBN mais pas de résumé/pages">Compléter via ISBN</button>
+  <button id="bSync" class="sec" title="Synchronisation avec un dépôt GitHub privé">☁ Synchro</button>
+  <span id="sync" style="font-size:12px"></span>
+  <span id="info"></span>
+  <input type="file" id="file" accept=".csv,.txt,.tsv" hidden>
+</header>
+<main>
+<table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
+</main>
+
+<dialog id="dlg">
+  <h3 id="dlgTitle">Livre</h3>
+  <div class="grid" id="form"></div>
+  <div class="row">
+    <button id="bLookup" class="sec">🔎 Chercher les infos en ligne</button>
+    <button id="bDel" class="danger">Supprimer</button>
+    <button id="bCancel" class="sec">Annuler</button>
+    <button id="bSave">Enregistrer</button>
+  </div>
+</dialog>
+
+<dialog id="dlgC">
+  <h3>Résultats en ligne</h3>
+  <div class="grid" style="grid-template-columns:90px 1fr 90px 1fr">
+    <label>ISBN</label><input id="cIsbn"><label></label><span></span>
+    <label>Titre</label><input id="cTitre"><label>Auteur</label><input id="cAuteur">
+  </div>
+  <div class="row" style="margin-top:8px"><button id="cGo">Rechercher</button></div>
+  <div id="cList"></div>
+  <div class="row"><label style="margin-right:auto"><input type="checkbox" id="cOver"> écraser les champs déjà remplis</label><button id="cClose" class="sec">Fermer</button></div>
+</dialog>
+<dialog id="dlgS">
+  <h3>Synchronisation GitHub</h3>
+  <div class="grid">
+    <label>Dépôt</label><input id="sRepo" placeholder="proprietaire/nom">
+    <label>Jeton</label><input id="sToken" type="password" placeholder="github_pat_…">
+    <label>Nom</label><input id="sName" placeholder="Ma bibliothèque">
+    <label>Description</label><input id="sDesc">
+    <label>Propriétaire</label><input id="sOwner">
+    <label>UUID bibliothèque</label><input id="sLib" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
+  </div>
+  <p id="sMsg" style="min-height:1.2em"></p>
+  <div class="row">
+    <button id="sCreate" class="sec">+ Créer une bibliothèque</button>
+    <button id="sMeta" class="sec">Enregistrer les infos</button>
+    <button id="sCopy" class="sec">Copier l'UUID</button>
+    <button id="sClose" class="sec">Fermer</button>
+    <button id="sOpen">Ouvrir</button>
+  </div>
+</dialog>
+<div id="prog"></div>
+
+<script>
+const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"]];
+const KEY="livrotheque.v1", SK="livrotheque.sync.";
+const lib=()=>localStorage.getItem(SK+"lib")||"";
+const ck=()=>KEY+"."+(lib()||"local");
+let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, cur=null;
+const $=id=>document.getElementById(id);
+const save=()=>{try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");scheduleSync()};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
+const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
+
+/* ---------- CSV (tabulations, guillemets non échappés, encodage mixte UTF-8 / Windows-1252) ---------- */
+function decodeLine(bytes){try{return new TextDecoder("utf-8",{fatal:true}).decode(bytes)}catch(e){return new TextDecoder("windows-1252").decode(bytes)}}
+function parseCsv(buf){
+  const u=new Uint8Array(buf), lines=[]; let s=0;
+  for(let i=0;i<=u.length;i++) if(i===u.length||u[i]===10){ if(i>s) lines.push(decodeLine(u.subarray(s,i)).replace(/\r$/,"")); s=i+1; }
+  if(lines.length&&lines[0].charCodeAt(0)===0xFEFF) lines[0]=lines[0].slice(1);
+  const head=lines.shift().split("\t").map(h=>h.replace(/^"|"$/g,"").trim());
+  return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>x.replace(/^"|"$/g,""));const o={};
+    COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});o.isbn=cleanIsbn(o.isbn);return o});
+}
+function toCsv(){
+  const f=v=>'"'+String(v??"").replace(/[\t\r\n]+/g," ")+'"';
+  return "﻿"+[COLS.map(([k])=>f(k)).join("\t"),...books.map(b=>COLS.map(([k])=>f(b[k])).join("\t"))].join("\r\n");
+}
+
+/* ---------- Affichage ---------- */
+function render(){
+  $("thead").innerHTML=COLS.map(([k,l])=>`<th data-k="${k}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
+  const q=$("q").value.toLowerCase().trim();
+  let list=books.map((b,i)=>[b,i]).filter(([b])=>
+    (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
+    (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture));
+  const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):String(b[sortKey]).toLowerCase();
+  list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir});
+  $("tbody").innerHTML=list.slice(0,1500).map(([b,i])=>`<tr data-i="${i}">`+COLS.map(([k])=>
+    k==="resume"?`<td class="r">${esc(b.resume.slice(0,160))}${b.resume.length>160?"…":""}</td>`:
+    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:`<td>${esc(b[k])}</td>`).join("")+"</tr>").join("");
+  $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus`;
+}
+$("thead").onclick=e=>{const k=e.target.closest("th")?.dataset.k;if(!k)return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render()};
+$("tbody").ondblclick=e=>{const i=e.target.closest("tr")?.dataset.i;if(i!=null)edit(+i)};
+["q","fNoIsbn","fNoRes","fUnread"].forEach(id=>$(id).addEventListener("input",render));
+
+/* ---------- Édition ---------- */
+function edit(i){
+  cur=i; const b=i==null?{}:books[i];
+  $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
+  $("form").innerHTML=COLS.map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
+  $("bDel").style.display=i==null?"none":"";
+  $("dlg").showModal();
+}
+const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,$("f_"+k).value.trim()]));
+$("bAdd").onclick=()=>edit(null);
+$("bCancel").onclick=()=>$("dlg").close();
+$("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
+$("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
+
+/* ---------- Import / export ---------- */
+$("bImport").onclick=()=>$("file").click();
+$("file").onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const rows=parseCsv(await f.arrayBuffer());
+  if(books.length&&!confirm(`Remplacer les ${books.length} livres actuels par les ${rows.length} du fichier ?`))return;
+  books=rows;save();render();e.target.value="";
+};
+$("bExport").onclick=()=>{
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([toCsv()],{type:"text/csv;charset=utf-8"}));
+  a.download="books-nicole.csv";a.click();
+};
+
+/* ---------- Recherche en ligne : Open Library + Google Books (aucune clé requise) ---------- */
+const jget=async u=>{const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()};
+async function olIsbn(isbn){
+  const out=[];
+  try{
+    const d=(await jget(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`))["ISBN:"+isbn];
+    if(d){
+      let resume="";
+      try{const e=await jget(`https://openlibrary.org/isbn/${isbn}.json`);const w=e.works?.[0]?.key;
+        let desc=e.description;if(!desc&&w)desc=(await jget(`https://openlibrary.org${w}.json`)).description;
+        resume=typeof desc==="object"?desc?.value||"":desc||"";}catch(e){}
+      out.push({src:"Open Library",titre:[d.title,d.subtitle].filter(Boolean).join(" : "),auteur:(d.authors||[]).map(a=>a.name).join(", "),
+        nb_pages:d.number_of_pages||"",isbn,resume,cover:d.cover?.small||"",editeur:(d.publishers||[]).map(p=>p.name).join(", ")});
+    }
+  }catch(e){}
+  return out;
+}
+function gbItem(v){const i=v.volumeInfo||{};
+  const id=(i.industryIdentifiers||[]).find(x=>x.type==="ISBN_13")||(i.industryIdentifiers||[])[0];
+  return {src:"Google Books",titre:[i.title,i.subtitle].filter(Boolean).join(" : "),auteur:(i.authors||[]).join(", "),nb_pages:i.pageCount||"",
+    isbn:id?id.identifier:"",resume:i.description||"",cover:(i.imageLinks?.smallThumbnail||"").replace("http:","https:"),editeur:i.publisher||""}}
+const gKey=()=>localStorage.getItem("livrotheque.gkey")||"";
+$("bKey").onclick=()=>{const k=prompt("Clé API Google Books (laisser vide pour désactiver Google Books) :",gKey());if(k!==null){localStorage.setItem("livrotheque.gkey",k.trim());alert(k.trim()?"Clé enregistrée.":"Google Books désactivé.")}};
+async function gbSearch(q){if(!gKey())return [];try{return ((await jget(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=8&langRestrict=fr&key=${encodeURIComponent(gKey())}`)).items||[]).map(gbItem)}catch(e){return []}}
+async function olSearch(titre,auteur){
+  try{const p=new URLSearchParams({fields:"title,author_name,isbn,number_of_pages_median,cover_i",limit:8});
+    if(titre)p.set("title",titre);if(auteur)p.set("author",auteur);
+    return ((await jget("https://openlibrary.org/search.json?"+p)).docs||[]).map(d=>({src:"Open Library",titre:d.title,auteur:(d.author_name||[]).join(", "),
+      nb_pages:d.number_of_pages_median||"",isbn:(d.isbn||[]).find(x=>x.length===13)||(d.isbn||[])[0]||"",resume:"",cover:d.cover_i?`https://covers.openlibrary.org/b/id/${d.cover_i}-S.jpg`:"",editeur:""}))}catch(e){return []}
+}
+async function lookup(isbn,titre,auteur){
+  if(isbn){return [...await olIsbn(isbn),...await gbSearch("isbn:"+isbn)]}
+  const t=titre.replace(/^\([^)]*\)\s*/,""); // retire le préfixe de tome "(3) "
+  return [...await gbSearch(`intitle:${t}`+(auteur?`+inauthor:${auteur}`:"")),...await olSearch(t,auteur)];
+}
+function applyTo(target,c,over){
+  for(const k of ["titre","auteur","nb_pages","isbn","resume"]) if(c[k]&&(over||!target[k])) target[k]=String(c[k]);
+}
+
+/* fenêtre de recherche manuelle */
+let cands=[];
+$("bLookup").onclick=()=>{const v=formVals();$("cIsbn").value=v.isbn;$("cTitre").value=v.titre;$("cAuteur").value=v.auteur;$("cList").innerHTML="";$("dlgC").showModal();if(v.isbn||v.titre)$("cGo").click()};
+$("cClose").onclick=()=>$("dlgC").close();
+$("cGo").onclick=async()=>{
+  $("cList").textContent="Recherche…";
+  cands=await lookup(cleanIsbn($("cIsbn").value),$("cTitre").value,$("cAuteur").value);
+  $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}">`:"<img>"}<div><b>${esc(c.titre)}</b><br>${esc(c.auteur)} <small>· ${esc(c.editeur)} · ${c.nb_pages||"?"} p · ISBN ${esc(c.isbn)} · ${c.src}</small><br><small>${esc((c.resume||"").slice(0,160))}</small></div></div>`).join(""):"Aucun résultat (ou service injoignable).";
+};
+$("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
+  const c=cands[+el.dataset.i],cur_=formVals();applyTo(cur_,c,$("cOver").checked);
+  for(const k in cur_) $("f_"+k).value=cur_[k];
+  $("dlgC").close();
+};
+
+/* complétion automatique en lot */
+$("bAuto").onclick=async()=>{
+  const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages));
+  if(!todo.length)return alert("Rien à compléter : tous les livres avec ISBN ont déjà résumé et pages.");
+  if(!confirm(`Interroger Open Library / Google Books pour ${todo.length} livres ? (les champs déjà remplis ne sont pas modifiés)`))return;
+  const p=$("prog");p.style.display="block";let ok=0;
+  for(let n=0;n<todo.length;n++){
+    p.textContent=`Complétion ${n+1}/${todo.length} — ${ok} complétés`;
+    const res=await lookup(todo[n].isbn);const before=JSON.stringify(todo[n]);
+    for(const c of res) applyTo(todo[n],c,false);
+    if(JSON.stringify(todo[n])!==before)ok++;
+    if(n%10===9)save();
+    await new Promise(r=>setTimeout(r,250));
+  }
+  save();render();p.textContent=`Terminé : ${ok} livres complétés sur ${todo.length}.`;setTimeout(()=>p.style.display="none",5000);
+};
+
+/* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
+const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
+const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff"};
+const b64enc=s=>{const u=new TextEncoder().encode(s);let r="";for(let i=0;i<u.length;i+=0x8000)r+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(r)};
+const b64dec=s=>Uint8Array.from(atob(s.replace(/\s/g,"")),c=>c.charCodeAt(0)).buffer;
+async function gh(method,body,id,kind){
+  const c=cfg(id,kind);
+  const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/${encodeURI(c.path)}`+(method==="GET"?`?ref=${encodeURIComponent(c.branch)}&t=${Date.now()}`:""),
+    {method,headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"},body:body&&JSON.stringify(body)});
+  if(!r.ok){const e=new Error(r.status);e.status=r.status;throw e}
+  return r.json();
+}
+async function pull(){
+  if(!cfg().repo||!cfg().token||!lib())return;
+  setStatus("☁ lecture…");
+  try{
+    const f=await gh("GET");
+    if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null){setStatus("☁ à jour");return}
+    const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
+    if(dirty&&!confirm("Des modifications locales non synchronisées existent ET le dépôt a changé.\nOK = garder la version du dépôt (perd les modifs locales)\nAnnuler = garder la version locale (écrase le dépôt au prochain enregistrement)")){
+      localStorage.setItem(SK+lib()+".sha",f.sha);scheduleSync();return}
+    books=parseCsv(b64dec(f.content));
+    localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");
+    render();setStatus("☁ synchronisé");
+  }catch(e){
+    if(e.status===404){setStatus("☁ fichier absent : il sera créé","#ffd");localStorage.removeItem(SK+lib()+".sha");if(books.length)scheduleSync()}
+    else setStatus("☁ erreur de lecture ("+e.message+")","#f99");
+  }
+}
+let syncTimer=null,syncing=false;
+function scheduleSync(){
+  if(!cfg().repo||!cfg().token||!lib())return;
+  setStatus("☁ modifications à envoyer…","#ffd");
+  clearTimeout(syncTimer);syncTimer=setTimeout(push,2500);
+}
+async function push(){
+  if(syncing){scheduleSync();return}
+  syncing=true;setStatus("☁ envoi…");
+  try{
+    const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");setStatus("☁ synchronisé");
+  }catch(e){
+    if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
+      if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
+    else setStatus("☁ erreur d'envoi ("+e.message+")","#f99");
+  }finally{syncing=false}
+}
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const emptyCsv=()=>"\ufeff"+COLS.map(([k])=>'"'+k+'"').join("\t")+"\r\n";
+const sMsg=(t,bad)=>{$("sMsg").textContent=t;$("sMsg").style.color=bad?"#c33":"#285"};
+const metaKey=id=>SK+id+".meta";
+const getMeta=()=>{try{return JSON.parse(localStorage.getItem(metaKey(lib())))||{}}catch(e){return {}}};
+const fillMeta=m=>{$("sName").value=m?.name||"";$("sDesc").value=m?.description||"";$("sOwner").value=m?.owner||""};
+const metaJson=()=>JSON.stringify({name:$("sName").value.trim(),description:$("sDesc").value.trim(),owner:$("sOwner").value.trim()},null,2)+"\n";
+async function loadMeta(id){
+  try{const f=await gh("GET",null,id,"meta");const m=JSON.parse(new TextDecoder().decode(b64dec(f.content)));localStorage.setItem(metaKey(id),JSON.stringify(m));return m}
+  catch(e){return null}
+}
+const updateLabel=()=>{const m=getMeta();$("bSync").textContent="☁ "+(lib()?(m.name||lib().slice(0,8)+"…"):"Synchro");$("bSync").title=lib()?[m.description,m.owner&&"Propriétaire : "+m.owner,lib()].filter(Boolean).join("\n"):"Synchronisation avec un dépôt GitHub privé"};
+async function flushCurrent(){clearTimeout(syncTimer);if(lib()&&localStorage.getItem(SK+lib()+".dirty")==="1")await push()}
+function saveAccess(){
+  const repo=$("sRepo").value.trim(),token=$("sToken").value.trim();
+  if(!repo||!token){sMsg("Dépôt et jeton obligatoires.",1);return null}
+  localStorage.setItem(SK+"repo",repo);localStorage.setItem(SK+"token",token);return true;
+}
+function useLib(id){
+  localStorage.setItem(SK+"lib",id);
+  books=JSON.parse(localStorage.getItem(ck())||"[]");render();updateLabel();
+}
+$("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value=lib();fillMeta(lib()?getMeta():null);sMsg("");$("dlgS").showModal()};
+$("sClose").onclick=()=>$("dlgS").close();
+$("sCopy").onclick=()=>{navigator.clipboard?.writeText($("sLib").value);sMsg("UUID copié.")};
+$("sOpen").onclick=async()=>{
+  if(!saveAccess())return;
+  const id=$("sLib").value.trim().toLowerCase();
+  if(!UUID.test(id))return sMsg("UUID invalide.",1);
+  sMsg("Vérification…");
+  try{await gh("GET",null,id)}catch(e){return sMsg(e.status===404?"Aucune bibliothèque avec cet UUID.":"Erreur GitHub ("+e.message+")",1)}
+  await flushCurrent();useLib(id);fillMeta(await loadMeta(id));updateLabel();await pull();$("dlgS").close();
+};
+$("sCreate").onclick=async()=>{
+  if(!saveAccess())return;
+  if(!$("sName").value.trim())return sMsg("Donnez un nom à la bibliothèque.",1);
+  const id=crypto.randomUUID();sMsg("Création…");
+  try{
+    const r=await gh("PUT",{message:"chore: create library "+id,content:b64enc(emptyCsv()),branch:cfg().branch},id);
+    await gh("PUT",{message:"chore: add library metadata "+id,content:b64enc(metaJson()),branch:cfg().branch},id,"meta");
+    await flushCurrent();useLib(id);
+    localStorage.setItem(SK+id+".sha",r.content.sha);localStorage.setItem(SK+id+".dirty","0");
+    localStorage.setItem(metaKey(id),metaJson());updateLabel();
+    $("sLib").value=id;setStatus("☁ synchronisé");
+    sMsg("Bibliothèque créée. Notez cet UUID : il est indispensable pour la rouvrir sur un autre appareil.");
+  }catch(e){sMsg("Création impossible ("+e.message+")",1)}
+};
+$("sMeta").onclick=async()=>{
+  if(!lib())return sMsg("Ouvrez ou créez d'abord une bibliothèque.",1);
+  if(!saveAccess())return;
+  if(!$("sName").value.trim())return sMsg("Le nom est obligatoire.",1);
+  sMsg("Enregistrement…");
+  try{
+    let sha;try{sha=(await gh("GET",null,lib(),"meta")).sha}catch(e){if(e.status!==404)throw e}
+    await gh("PUT",{message:"chore: update library metadata "+lib(),content:b64enc(metaJson()),branch:cfg().branch,sha},lib(),"meta");
+    localStorage.setItem(metaKey(lib()),metaJson());updateLabel();sMsg("Infos enregistrées.");
+  }catch(e){sMsg("Erreur GitHub ("+e.message+")",1)}
+};
+window.addEventListener("beforeunload",e=>{if(localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
+
+render();
+updateLabel();
+pull();
+if(!books.length)$("info").textContent="Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque";
+</script>
+</body>
+</html>
