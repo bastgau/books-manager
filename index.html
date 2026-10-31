@@ -60,6 +60,27 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
 footer#ver{flex:none;padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
 #bnfOpts{font-size:13px;margin:6px 0 0}#bnfOpts label{margin-right:12px;white-space:nowrap}
+/* ---------- mobile / tablette : une colonne de contenu, pas de largeur minimale ---------- */
+@media (max-width:900px){
+  body{min-width:0}
+  header{padding:8px 10px;gap:6px 8px;position:static}   /* barre non collante : elle prendrait ~1/4 de l'écran */
+  th{top:0 !important}
+  header h1{font-size:16px;margin:0 8px 0 0}
+  .sf{flex:1 1 100%;flex-wrap:wrap;gap:4px 12px}
+  .sf input[type=search]{flex:1 1 100%;min-width:0}
+  input,textarea,select{font-size:16px}               /* évite le zoom automatique de iOS dans les champs */
+  main{padding:8px 6px 0}
+  table{min-width:0;width:100%}
+  th,td{padding:4px 6px}
+  tbody td{white-space:normal;overflow:hidden;line-height:1.2;max-height:56px}
+  #foldbar{padding-bottom:6px}
+  .cv{height:48px}
+  footer#ver{padding:8px 10px;font-size:11px;line-height:1.35}
+  dialog{width:96vw;padding:12px;max-height:94vh}
+  .grid{grid-template-columns:96px 1fr}
+  #dlgC .grid{grid-template-columns:70px 1fr !important}
+  #ov{max-width:92vw}
+}
 </style>
 </head>
 <body>
@@ -339,8 +360,11 @@ const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c
 const expanded=new Set();
 let letters=[];
 function render(){
-  const cols=COLS.filter(([k])=>k!=="couverture"&&k!=="a_verifier");
-  $("thead").innerHTML='<th style="width:56px"></th>'+cols.map(([k,l])=>`<th data-k="${k}" style="width:${WIDTHS[k]||"auto"}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
+  /* mobile : seulement pochette, auteur, titre et résumé ; le reste est dans la fiche (clic sur la ligne) */
+  const mobile=!!(window.matchMedia&&matchMedia("(max-width:900px)").matches);
+  const cols=COLS.filter(([k])=>k!=="couverture"&&k!=="a_verifier"&&(!mobile||k==="auteur"||k==="titre"||k==="resume"));
+  const W=mobile?{auteur:"34%",titre:"auto",resume:"46px"}:WIDTHS;
+  $("thead").innerHTML=`<th style="width:${mobile?52:56}px"></th>`+cols.map(([k,l])=>`<th data-k="${k}" style="width:${W[k]||"auto"}">${mobile&&k==="resume"?"📝":l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
   const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
   let list=books.map((b,i)=>[b,i]).filter(([b])=>
@@ -581,7 +605,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T20:06:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T20:18:21Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -717,6 +741,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStor
 
 const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
 window.addEventListener("resize",setHH);setHH();
+if(window.matchMedia){const mq=matchMedia("(max-width:900px)");(mq.addEventListener?mq.addEventListener.bind(mq,"change"):mq.addListener.bind(mq))(()=>render())}
 render();
 updateLabel();
 renderVer();
