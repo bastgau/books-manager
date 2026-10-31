@@ -508,7 +508,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T20:57:16Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T21:01:58Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -533,7 +533,7 @@ async function dbVersion(){
   }catch(e){dbInfo=""}
   renderVer();
 }
-const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff";if(/synchronisé|à jour/.test(t)){clearTimeout(verTimer);verTimer=setTimeout(dbVersion,600)}};
+const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff";if(/synchronisé|à jour/.test(t)){clearTimeout(verTimer);verTimer=setTimeout(()=>{dbVersion();refreshMeta()},600)}};
 const b64enc=s=>{const u=new TextEncoder().encode(s);let r="";for(let i=0;i<u.length;i+=0x8000)r+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(r)};
 const b64dec=s=>Uint8Array.from(atob(s.replace(/\s/g,"")),c=>c.charCodeAt(0)).buffer;
 async function gh(method,body,id,kind){
@@ -587,6 +587,14 @@ const metaKey=id=>SK+id+".meta";
 const getMeta=()=>{try{return JSON.parse(localStorage.getItem(metaKey(lib())))||{}}catch(e){return {}}};
 const fillMeta=m=>{$("sName").value=m?.name||"";$("sDesc").value=m?.description||"";$("sOwner").value=m?.owner||""};
 const metaJson=(p="s")=>JSON.stringify({name:$(p+"Name").value.trim(),description:$(p+"Desc").value.trim(),owner:$(p+"Owner").value.trim()},null,2)+"\n";
+/* nom, description et propriétaire de la bibliothèque ouverte : relus une fois par session (nouvel appareil, lien de configuration, renommage ailleurs) */
+let metaFor="";
+async function refreshMeta(){
+  if(!lib()||!cfg().repo||!cfg().token||metaFor===lib())return;
+  metaFor=lib();
+  const m=await loadMeta(lib());
+  if(m)updateLabel();else metaFor="";   // échec réseau : on réessaiera à la prochaine synchro
+}
 async function loadMeta(id){
   try{const f=await gh("GET",null,id,"meta");const m=JSON.parse(new TextDecoder().decode(b64dec(f.content)));localStorage.setItem(metaKey(id),JSON.stringify(m));return m}
   catch(e){return null}
@@ -689,6 +697,7 @@ async function applyCfgHash(){
     if(had)await flushCurrent();                          // modifications en attente de la bibliothèque actuelle : envoyées avec l'ancien accès
     localStorage.setItem(SK+"repo",o.repo);localStorage.setItem(SK+"token",o.token);if(o.branch)localStorage.setItem(SK+"branch",o.branch);if(o.gkey)localStorage.setItem("livrotheque.gkey",o.gkey);
     useLib(o.lib);clean();
+    await loadMeta(o.lib);updateLabel();   // récupère aussi nom, description et propriétaire de la bibliothèque
   }catch(e){clean();alert("Lien de configuration illisible ou mot de passe incorrect.")}
 }
 
