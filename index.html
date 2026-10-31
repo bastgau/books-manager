@@ -362,6 +362,7 @@ function render(){
   $("tbody").innerHTML=out;
   hydrateCovers($("tbody"));
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier`;
+  if(typeof setHH==="function")setHH();
 }
 $("foldbar").addEventListener("click",e=>{const a=e.target.closest("a.foldlink");if(!a)return;e.preventDefault();if(!letters.length)return;if(a.dataset.a==="open")letters.forEach(l=>expanded.add(l));else expanded.clear();render()});
 $("tbody").addEventListener("click",e=>{const g=e.target.closest("tr.grp");if(!g)return;const l=g.dataset.l;expanded.has(l)?expanded.delete(l):expanded.add(l);render()});
@@ -553,7 +554,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:51:37Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:52:35Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
