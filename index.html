@@ -32,6 +32,7 @@ textarea{min-height:110px}
 .cand:hover{background:#fff6e0}.cand img{width:48px;height:70px;object-fit:cover;background:#eee}
 .cand small{color:#666}
 #prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
+fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
 </style>
 </head>
 <body>
@@ -78,22 +79,37 @@ textarea{min-height:110px}
 </dialog>
 <dialog id="dlgS">
   <h3>Synchronisation GitHub</h3>
-  <div class="grid">
-    <label>Dépôt</label><input id="sRepo" placeholder="proprietaire/nom">
-    <label>Jeton</label><input id="sToken" type="password" placeholder="github_pat_…">
-    <label>Nom</label><input id="sName" placeholder="Ma bibliothèque">
-    <label>Description</label><input id="sDesc">
-    <label>Propriétaire</label><input id="sOwner">
-    <label>UUID bibliothèque<br><small style="color:#777">pour ouvrir une bibliothèque existante</small></label><input id="sLib" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
-  </div>
+  <fieldset><legend>1. Accès au dépôt</legend>
+    <div class="grid">
+      <label>Dépôt</label><input id="sRepo" placeholder="proprietaire/nom">
+      <label>Jeton</label><input id="sToken" type="password" placeholder="github_pat_…">
+    </div>
+  </fieldset>
+  <fieldset><legend>2. Ouvrir une bibliothèque existante</legend>
+    <div class="grid">
+      <label>UUID</label><input id="sLib" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
+    </div>
+    <div class="row"><button id="sOpen">Ouvrir</button></div>
+  </fieldset>
+  <fieldset><legend>3. Créer une nouvelle bibliothèque</legend>
+    <div class="grid">
+      <label>Nom</label><input id="nName" placeholder="Ma bibliothèque">
+      <label>Description</label><input id="nDesc">
+      <label>Propriétaire</label><input id="nOwner">
+    </div>
+    <div class="row"><button id="sCreate" class="sec">+ Créer (nouvel UUID)</button></div>
+  </fieldset>
+  <fieldset id="curBox"><legend>Bibliothèque ouverte</legend>
+    <div class="grid">
+      <label>UUID</label><code id="sCur" style="word-break:break-all"></code>
+      <label>Nom</label><input id="sName">
+      <label>Description</label><input id="sDesc">
+      <label>Propriétaire</label><input id="sOwner">
+    </div>
+    <div class="row"><button id="sCopy" class="sec">Copier l'UUID</button><button id="sMeta" class="sec">Enregistrer les infos</button></div>
+  </fieldset>
   <p id="sMsg" style="min-height:1.2em"></p>
-  <div class="row">
-    <button id="sCreate" class="sec" title="Crée une NOUVELLE bibliothèque vide avec un nouvel UUID">+ Créer une nouvelle bibliothèque</button>
-    <button id="sMeta" class="sec">Enregistrer les infos</button>
-    <button id="sCopy" class="sec">Copier l'UUID</button>
-    <button id="sClose" class="sec">Fermer</button>
-    <button id="sOpen">Ouvrir</button>
-  </div>
+  <div class="row"><button id="sClose" class="sec">Fermer</button></div>
 </dialog>
 <div id="prog"></div>
 
@@ -293,7 +309,7 @@ const sMsg=(t,bad)=>{$("sMsg").textContent=t;$("sMsg").style.color=bad?"#c33":"#
 const metaKey=id=>SK+id+".meta";
 const getMeta=()=>{try{return JSON.parse(localStorage.getItem(metaKey(lib())))||{}}catch(e){return {}}};
 const fillMeta=m=>{$("sName").value=m?.name||"";$("sDesc").value=m?.description||"";$("sOwner").value=m?.owner||""};
-const metaJson=()=>JSON.stringify({name:$("sName").value.trim(),description:$("sDesc").value.trim(),owner:$("sOwner").value.trim()},null,2)+"\n";
+const metaJson=(p="s")=>JSON.stringify({name:$(p+"Name").value.trim(),description:$(p+"Desc").value.trim(),owner:$(p+"Owner").value.trim()},null,2)+"\n";
 async function loadMeta(id){
   try{const f=await gh("GET",null,id,"meta");const m=JSON.parse(new TextDecoder().decode(b64dec(f.content)));localStorage.setItem(metaKey(id),JSON.stringify(m));return m}
   catch(e){return null}
@@ -309,9 +325,10 @@ function useLib(id){
   localStorage.setItem(SK+"lib",id);
   books=JSON.parse(localStorage.getItem(ck())||"[]");render();updateLabel();
 }
-$("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value=lib();fillMeta(lib()?getMeta():null);sMsg("");$("dlgS").showModal()};
+const refreshCur=()=>{$("curBox").style.display=lib()?"":"none";$("sCur").textContent=lib()};
+$("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value="";["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(lib()?getMeta():null);refreshCur();sMsg("");$("dlgS").showModal()};
 $("sClose").onclick=()=>$("dlgS").close();
-$("sCopy").onclick=()=>{navigator.clipboard?.writeText($("sLib").value);sMsg("UUID copié.")};
+$("sCopy").onclick=()=>{navigator.clipboard?.writeText(lib());sMsg("UUID copié.")};
 $("sOpen").onclick=async()=>{
   if(!saveAccess())return;
   const id=$("sLib").value.trim().toLowerCase();
@@ -322,17 +339,16 @@ $("sOpen").onclick=async()=>{
 };
 $("sCreate").onclick=async()=>{
   if(!saveAccess())return;
-  if($("sLib").value.trim()&&!confirm("Un UUID est déjà saisi.\n\nPour OUVRIR cette bibliothèque, annulez et cliquez sur « Ouvrir ».\n\nOK = créer quand même une NOUVELLE bibliothèque vide (avec un nouvel UUID)."))return;
-  if(!$("sName").value.trim())return sMsg("Donnez un nom à la bibliothèque.",1);
-  const id=crypto.randomUUID();sMsg("Création…");
+  if(!$("nName").value.trim())return sMsg("Donnez un nom à la nouvelle bibliothèque.",1);
+  const id=crypto.randomUUID(),meta=metaJson("n");sMsg("Création…");
   try{
     const r=await gh("PUT",{message:"chore: create library "+id,content:b64enc(emptyCsv()),branch:cfg().branch},id);
-    await gh("PUT",{message:"chore: add library metadata "+id,content:b64enc(metaJson()),branch:cfg().branch},id,"meta");
+    await gh("PUT",{message:"chore: add library metadata "+id,content:b64enc(meta),branch:cfg().branch},id,"meta");
     await flushCurrent();useLib(id);
     localStorage.setItem(SK+id+".sha",r.content.sha);localStorage.setItem(SK+id+".dirty","0");
-    localStorage.setItem(metaKey(id),metaJson());updateLabel();
-    $("sLib").value=id;setStatus("☁ synchronisé");
-    sMsg("Bibliothèque créée. Notez cet UUID : il est indispensable pour la rouvrir sur un autre appareil.");
+    localStorage.setItem(metaKey(id),meta);updateLabel();
+    ["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(getMeta());refreshCur();setStatus("☁ synchronisé");
+    sMsg("Bibliothèque créée et ouverte. Notez son UUID : il est indispensable pour la rouvrir sur un autre appareil.");
   }catch(e){sMsg("Création impossible ("+e.message+")",1)}
 };
 $("sMeta").onclick=async()=>{
