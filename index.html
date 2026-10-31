@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}
-body{font:14px system-ui,sans-serif;margin:0;color:#222;background:#f4f1ea}
+body{font:14px system-ui,sans-serif;margin:0;color:#222;background:#f4f1ea;min-width:1322px;min-height:100vh;display:flex;flex-direction:column}
 header{background:#5b3a29;color:#fff;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:5}
 header h1{font-size:18px;margin:0 12px 0 0}
 header input[type=search]{padding:6px 10px;border:0;border-radius:4px;min-width:240px}
@@ -18,7 +18,7 @@ header label{font-size:13px;white-space:nowrap}
 tr.foldrow td{text-align:center;padding:6px;border-bottom:0;background:#fff;cursor:default}
 a.foldlink{color:#5b3a29;font-size:13px;text-decoration:underline;cursor:pointer}
 #info{margin-left:auto;font-size:13px;opacity:.9}
-main{padding:12px 16px}
+main{padding:12px 16px;flex:1}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{padding:6px 8px;border-bottom:1px solid #e6e0d4;text-align:left;vertical-align:middle}
 th{background:#ece5d6;cursor:pointer;position:sticky;top:52px;user-select:none;white-space:nowrap}
@@ -52,6 +52,9 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
 #ov b{display:block;margin-bottom:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
+footer#ver{padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
+a.foldlink.off{color:#aaa;cursor:default;text-decoration:none}
+#bnfOpts{font-size:13px;margin:6px 0 0}#bnfOpts label{margin-right:12px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -74,7 +77,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 <main>
 <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
 </main>
-<footer id="ver" style="padding:10px 16px 18px;font-size:12px;color:#7a6a58"></footer>
+<footer id="ver"></footer>
 
 <dialog id="dlgV">
   <div id="vBody"></div>
@@ -84,6 +87,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
   <h3 id="dlgTitle">Livre</h3>
   <div class="grid" id="form"></div>
   <p id="fMsg"></p>
+  <div id="bnfOpts">Recherche BnF : <label><input type="checkbox" id="oIsbn"> par ISBN</label><label><input type="checkbox" id="oTitle"> par auteur &amp; titre</label><small class="muted">(ISBN d'abord, puis auteur &amp; titre si les deux sont cochés)</small></div>
   <div class="row">
     <button id="bBnf" class="sec" title="Corrige titre et auteur d'après le catalogue de la BnF">✨ Corriger via la BnF</button>
     <button id="bLookup" class="sec">🔎 Chercher les infos en ligne</button>
@@ -202,11 +206,7 @@ function titleCase(raw) {
 const searchTitle = (t) => String(t || "").replace(/^\s*\([^)]*\)\s*/, "").replace(/^\s*[A-Za-z]?\d[A-Za-z]?\s*[-–]?\s+(?=\S)/, "").replace(/\s*\btome\s*\d+\b.*$/i, "").trim();
 
 const dc = (xml, tag) => [...xml.matchAll(new RegExp(`<dc:${tag}>([^<]*)</dc:${tag}>`, "g"))].map((m) => m[1].replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
-async function bnfSearch(title, author) {
-  const w = (s) => key(s).split(" ").filter((x) => x.length > 1);
-  const tw = w(title).slice(0, 6).join(" "), aw = w(author).slice(0, 2).join(" ");
-  if (!tw) return [];
-  const q = `bib.title all "${tw}"` + (aw ? ` and bib.author all "${aw}"` : "");
+async function bnfQuery(q) {
   const url = `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=${encodeURIComponent(q)}&recordSchema=dublincore&maximumRecords=20`;
   for (let k = 0; k < 3; k++) {
     try {
@@ -217,6 +217,37 @@ async function bnfSearch(title, author) {
     } catch { await new Promise((r) => setTimeout(r, 800 * (k + 1))); }
   }
   return null;
+}
+async function bnfSearch(title, author) {
+  const w = (s) => key(s).split(" ").filter((x) => x.length > 1);
+  const tw = w(title).slice(0, 6).join(" "), aw = w(author).slice(0, 2).join(" ");
+  if (!tw) return [];
+  return bnfQuery(`bib.title all "${tw}"` + (aw ? ` and bib.author all "${aw}"` : ""));
+}
+/** ISBN-13 (978…) -> ISBN-10 ; la BnF indexe certains livres sous l'une des formes seulement */
+function isbn10(i) {
+  if (i.length !== 13 || !i.startsWith("978")) return null;
+  const b = i.slice(3, 12); let s = 0; for (let k = 0; k < 9; k++) s += (10 - k) * +b[k];
+  const c = (11 - (s % 11)) % 11; return b + (c === 10 ? "X" : c);
+}
+/** recherche par ISBN (13 puis 10) ; renvoie {title, author} (formes les plus fréquentes), {} si aucune notice, null si réseau KO */
+function isbnValid(i) {
+  if (/^\d{13}$/.test(i)) { let s = 0; for (let k = 0; k < 13; k++) s += (k % 2 ? 3 : 1) * +i[k]; return s % 10 === 0; }
+  if (/^\d{9}[\dX]$/.test(i)) { let s = 0; for (let k = 0; k < 10; k++) s += (10 - k) * (i[k] === "X" ? 10 : +i[k]); return s % 11 === 0; }
+  return false;
+}
+async function bnfIsbn(isbn) {
+  if (!isbnValid(isbn)) return { invalid: true };
+  let found = [];
+  for (const v of [isbn, isbn10(isbn)].filter(Boolean)) {
+    const r = await bnfQuery(`bib.isbn adj "${v}"`);
+    if (r === null) return null;
+    if (r.length) { found = r; break; }
+  }
+  if (!found.length) return {};
+  const t = {}, a = {};
+  for (const c of found) { const m = bnfMain(c.title); if (m) t[m] = (t[m] || 0) + 1; const x = bnfAuthor(c.creator); if (x) a[x] = (a[x] || 0) + 1; }
+  return { title: top(t), author: top(a) };
 }
 /** titre principal d'une notice BnF : avant " / " puis avant " : " */
 const bnfMain = (t) => t.split(" / ")[0].split(" : ")[0].replace(/\s*\[[^\]]*\]\s*/g, " ").replace(/\.\s*\[?\d+\]?\s*$/, "").trim();
@@ -244,7 +275,7 @@ function rebuildTitle(original, core, picked) {
   return prefix + picked.replace(/^\p{Ll}/u, (c) => c.toUpperCase()) + suffix.toLowerCase();
 }
 
-return {key,strip,mostlyUpper,authorCase,bnfAuthor,titleCase,searchTitle,bnfSearch,bnfMain,pickTitle,pickAuthor,rebuildTitle};
+return {key,strip,mostlyUpper,authorCase,bnfAuthor,titleCase,searchTitle,bnfSearch,bnfMain,pickTitle,pickAuthor,rebuildTitle,isbn10,isbnValid,bnfIsbn};
 })();
 const coverG=b=>b.isbn?`https://books.google.com/books/content?vid=ISBN${b.isbn}&printsec=frontcover&img=1&zoom=1`:"";
 /* ordre : fichier du dépôt GitHub (chargé à part) > URL enregistrée > Open Library > Google Books */
@@ -313,7 +344,7 @@ function render(){
     k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
     k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&b.a_verifier?`<td title="À vérifier : ${esc(b[k])}"><span class="warn">⚠</span> ${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
   const allOpen=letters.length>0&&letters.every(l=>expanded.has(l));
-  let out=grouped&&!filtering&&letters.length?`<tr class="foldrow"><td colspan="${cols.length+1}"><a class="foldlink" href="#">${allOpen?"Tout replier":"Tout déplier"}</a></td></tr>`:"",cur="";
+  let out=`<tr class="foldrow"><td colspan="${cols.length+1}"><a class="foldlink${letters.length?"":" off"}" href="#" title="${letters.length?"":"Disponible avec le tri par auteur ou par titre"}">${allOpen?"Tout replier":"Tout déplier"}</a></td></tr>`,cur="";
   for(const it of list){
     if(grouped){
       const l=letterOf(it[0][sortKey]);
@@ -326,7 +357,7 @@ function render(){
   hydrateCovers($("tbody"));
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier`;
 }
-$("tbody").addEventListener("click",e=>{if(!e.target.closest("a.foldlink"))return;e.preventDefault();if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()});
+$("tbody").addEventListener("click",e=>{if(!e.target.closest("a.foldlink"))return;e.preventDefault();if(!letters.length)return;if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()});
 $("tbody").addEventListener("click",e=>{const g=e.target.closest("tr.grp");if(!g)return;const l=g.dataset.l;expanded.has(l)?expanded.delete(l):expanded.add(l);render()});
 /* aperçu du résumé : au survol, et épinglé au clic */
 let ovPinned=null;
@@ -373,6 +404,7 @@ function edit(i){
   $("form").insertAdjacentHTML("beforeend",'<label>Aperçu</label><div id="fPrev"></div>');
   const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=$("fPrev").querySelector("img");if(im)loadCover(im)};
   $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
+  $("oIsbn").checked=localStorage.getItem("livrotheque.bnf.isbn")!=="0";$("oTitle").checked=localStorage.getItem("livrotheque.bnf.title")!=="0";
   $("fMsg").textContent="Règles : auteur au format NOM Prénom ; titre en minuscules, sauf la 1re lettre et les noms propres.";
   $("f_auteur").onblur=()=>{const v=$("f_auteur").value.trim();if(v&&(TX.mostlyUpper(v)||v===v.toLowerCase()))$("f_auteur").value=TX.authorCase(v)};
   $("f_titre").onblur=()=>{$("f_titre").value=TX.titleCase($("f_titre").value)};
@@ -381,17 +413,45 @@ function edit(i){
 }
 const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,k==="a_verifier"?($("f_"+k).checked?"1":""):$("f_"+k).value.trim()]));
 $("bBnf").onclick=async()=>{
-  const t=$("f_titre").value.trim(),a=$("f_auteur").value.trim();
-  if(!t)return $("fMsg").textContent="Saisissez d'abord un titre.";
-  $("fMsg").textContent="Recherche dans le catalogue de la BnF…";
-  const core=TX.searchTitle(t),res=await TX.bnfSearch(core,a);
-  if(!res)return $("fMsg").textContent="BnF injoignable, réessayez plus tard.";
-  const c=res.map(r=>({t:TX.bnfMain(r.title),c:r.creator})),pt=TX.pickTitle(c,core),pa=a?TX.pickAuthor(c,a):null;
+  const useI=$("oIsbn").checked,useT=$("oTitle").checked,msg=t=>$("fMsg").textContent=t;
+  localStorage.setItem("livrotheque.bnf.isbn",useI?"1":"0");localStorage.setItem("livrotheque.bnf.title",useT?"1":"0");
+  if(!useI&&!useT)return msg("Cochez au moins une méthode de recherche : ISBN et/ou auteur & titre.");
+  const t=$("f_titre").value.trim(),a=$("f_auteur").value.trim(),isbn=cleanIsbn($("f_isbn").value),notes=[];
+  const tok=s=>TX.key(s).split(" ").filter(Boolean).sort().join(" ");
+  let method="",pt=null,pa=null,core=TX.searchTitle(t),isbnTitle=null,isbnAuthor=null;
+  if(useI){
+    if(!isbn)notes.push("pas d'ISBN saisi");
+    else{
+      msg("Recherche par ISBN dans le catalogue de la BnF…");
+      const r=await TX.bnfIsbn(isbn);
+      if(r===null)notes.push("BnF injoignable");
+      else if(r.invalid)notes.push("ISBN invalide (clé de contrôle)");
+      else if(r.title){method="ISBN";isbnTitle=r.title;isbnAuthor=r.author;
+        if(!t||TX.key(core)===TX.key(r.title))pt=r.title;      // titre identique (casse/accents près) : on l'applique
+        if(r.author&&(!a||tok(a)===tok(r.author)))pa=r.author;  // même personne : on l'applique
+      }else notes.push("ISBN absent du catalogue");
+    }
+  }
+  if(!method&&useT){
+    if(!t)notes.push("pas de titre saisi");
+    else{
+      msg("Recherche par auteur et titre dans le catalogue de la BnF…");
+      const res=await TX.bnfSearch(core,a);
+      if(!res)notes.push("BnF injoignable");
+      else{const c=res.map(r=>({t:TX.bnfMain(r.title),c:r.creator}));pt=TX.pickTitle(c,core);pa=a?TX.pickAuthor(c,a):null;
+        if(pt||pa)method="auteur et titre";else notes.push("aucune notice correspondante")}
+    }
+  }
+  if(!method)return msg("Aucune correction : "+notes.join(" ; ")+".");
   const out=[];
-  if(pt){const n=TX.rebuildTitle(t,core,pt);if(n!==t){$("f_titre").value=n;out.push("titre")}}
+  if(pt){const m=/^\s*\([^)]*\)\s*/.exec(t);const cap=s=>s.replace(/^\p{Ll}/u,c=>c.toUpperCase());
+    const n=method==="ISBN"?(m?m[0]:"")+cap(pt):TX.rebuildTitle(t,core,pt);if(n!==t){$("f_titre").value=n;out.push("titre")}}
   if(pa&&pa!==a){$("f_auteur").value=pa;out.push("auteur")}
   if(pt&&(pa||!a))$("f_a_verifier").checked=false;
-  $("fMsg").textContent=out.length?"Corrigé d'après la BnF : "+out.join(" et ")+".":(pt||pa?"Déjà conforme à la BnF.":"Aucune notice BnF correspondante : vérifiez à la main.");
+  const diff=[];
+  if(method==="ISBN"&&!pt&&isbnTitle)diff.push("titre BnF différent : « "+isbnTitle+" » (non appliqué)");
+  if(method==="ISBN"&&!pa&&isbnAuthor&&tok(a)!==tok(isbnAuthor))diff.push("auteur BnF différent : « "+isbnAuthor+" » (non appliqué)");
+  msg((out.length?"Corrigé d'après la BnF (par "+method+") : "+out.join(" et ")+".":"Déjà conforme à la BnF (par "+method+").")+(diff.length?" Attention : "+diff.join(" ; ")+".":""));
 };
 $("bAdd").onclick=()=>edit(null);
 $("bCancel").onclick=()=>$("dlg").close();
@@ -487,7 +547,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:26:37Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:36:07Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
