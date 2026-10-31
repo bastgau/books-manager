@@ -144,7 +144,8 @@ const letters = (s) => s.replace(/[^A-Za-zÀ-ÿ]/g, "");
 const mostlyUpper = (s) => { const l = letters(s); if (l.length < 2) return false; return (l.match(/[A-ZÀ-ÖØ-Þ]/g) || []).length / l.length >= 0.6; };
 
 const PARTICLES = new Set(["de", "du", "des", "la", "le", "les", "van", "von", "der", "den", "di", "da", "del", "d'", "l'", "el", "al", "ben", "bin"]);
-const cap = (w) => w.split(/(-|')/).map((p, i, a) => (p === "-" || p === "'" || p === "" ? p : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())).join("");
+const FIRST = Object.fromEntries("Françoise André Éric Loïc José Michèle Raphaële Frédéric Hélène Émile Régine Agnès Thérèse Gérard Jérôme Stéphane Céline Élisabeth Évelyne Geneviève Mélanie Sébastien Christèle Adèle Amélie Anaïs Noël Noémie Joël Renée Zoé Léa Léon Élodie Édith Hervé Cécile Stéphanie Véronique Jérémie Maïté Raphaël Inès Gwenaëlle Chloé Clémence Éléonore Eugénie Félix Gaël Gaëlle Désirée Valérie Aurélie Cédric Clément Médéric Joséphine Honoré Albéric Frédérique Ghislaine Sylvère Rémy Rémi Léonie Mathilde Étienne Aimé Aïcha Zoë Séverine Estelle Ségolène Lénaïg Maëlle Loïs Anaëlle Océane Yaël Zélie Zéphyrine".split(" ").map((n) => [n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase(), n]));
+const cap = (w) => w.split(/(-|')/).map((p) => { if (p === "-" || p === "'" || p === "") return p; const k = p.toUpperCase(); return FIRST[k] || p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }).join("");
 
 /** "DEFORGES REGINE" / "Guillaume Musso" / "Arces Amicie d'" -> "NOM Prénom" (casse seulement, sans accents) */
 function authorCase(raw) {
@@ -231,7 +232,7 @@ function rebuildTitle(original, core, picked) {
   return prefix + picked.replace(/^\p{Ll}/u, (c) => c.toUpperCase()) + suffix.toLowerCase();
 }
 
-return {strip,key,mostlyUpper,authorCase,bnfAuthor,titleCase,searchTitle,bnfSearch,bnfMain,pickTitle,pickAuthor,rebuildTitle};
+return {key,strip,mostlyUpper,authorCase,bnfAuthor,titleCase,searchTitle,bnfSearch,bnfMain,pickTitle,pickAuthor,rebuildTitle};
 })();
 const coverG=b=>b.isbn?`https://books.google.com/books/content?vid=ISBN${b.isbn}&printsec=frontcover&img=1&zoom=1`:"";
 /* ordre : fichier du dépôt GitHub (chargé à part) > URL enregistrée > Open Library > Google Books */
