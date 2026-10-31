@@ -60,10 +60,6 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
   <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
   <button id="bFold" class="sec">Tout déplier</button>
   <button id="bAdd">+ Ajouter</button>
-  <button id="bImport" class="sec">Importer CSV</button>
-  <button id="bExport" class="sec">Exporter CSV</button>
-  <button id="bKey" class="sec" title="Clé API Google Books (gratuite)">Clé Google</button>
-  <button id="bAuto" class="sec" title="Pour tous les livres qui ont un ISBN mais pas de résumé/pages">Compléter via ISBN</button>
   <button id="bSync" class="sec" title="Synchronisation avec un dépôt GitHub privé">☁ Synchro</button>
   <span id="sync" style="font-size:12px"></span>
   <span id="info"></span>
@@ -132,6 +128,14 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
       <label>Propriétaire</label><input id="sOwner">
     </div>
     <div class="row"><button id="sCopy" class="sec">Copier l'UUID</button><button id="sMeta" class="sec">Enregistrer les infos</button></div>
+  </fieldset>
+  <fieldset><legend>Données et outils</legend>
+    <div class="row" style="justify-content:flex-start;margin-top:4px">
+      <button id="bImport" class="sec" title="Remplace la bibliothèque ouverte par le contenu d'un fichier CSV">Importer CSV</button>
+      <button id="bExport" class="sec" title="Télécharge la bibliothèque ouverte au format CSV">Exporter CSV</button>
+      <button id="bKey" class="sec" title="Clé API Google Books (gratuite)">Clé Google</button>
+      <button id="bAuto" class="sec" title="Pour tous les livres qui ont un ISBN mais pas de résumé/pages">Compléter via ISBN</button>
+    </div>
   </fieldset>
   <p id="sMsg" style="min-height:1.2em"></p>
   <div class="row"><button id="sClose" class="sec">Fermer</button></div>
@@ -392,7 +396,7 @@ $("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.t
 $("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
 
 /* ---------- Import / export ---------- */
-$("bImport").onclick=()=>$("file").click();
+$("bImport").onclick=()=>{$("dlgS").close();$("file").click()};
 $("file").onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   const rows=parseCsv(await f.arrayBuffer());
@@ -462,6 +466,7 @@ $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
 
 /* complétion automatique en lot */
 $("bAuto").onclick=async()=>{
+  $("dlgS").close();
   const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages));
   if(!todo.length)return alert("Rien à compléter : tous les livres avec ISBN ont déjà résumé et pages.");
   if(!confirm(`Interroger Open Library / Google Books pour ${todo.length} livres ? (les champs déjà remplis ne sont pas modifiés)`))return;
@@ -479,7 +484,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:17:06Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:20:19Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
