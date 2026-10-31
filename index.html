@@ -22,7 +22,7 @@ header label{font-size:13px;white-space:nowrap}
 #foldbar.off a{color:#aaa;cursor:default;text-decoration:none}
 a.foldlink{color:#5b3a29;font-size:13px;text-decoration:underline;cursor:pointer}
 #info{font-size:13px;opacity:.9}
-main{padding:12px 16px;flex:1}
+main{padding:12px 16px 8px;flex:0 0 auto}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{padding:6px 8px;border-bottom:1px solid #e6e0d4;text-align:left;vertical-align:middle}
 th{background:#ece5d6;cursor:pointer;position:sticky;top:var(--hh,52px);user-select:none;white-space:nowrap}
@@ -56,7 +56,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
 #ov b{display:block;margin-bottom:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
-footer#ver{padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
+footer#ver{flex:1 0 auto;padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
 #bnfOpts{font-size:13px;margin:6px 0 0}#bnfOpts label{margin-right:12px;white-space:nowrap}
 </style>
 </head>
@@ -109,7 +109,9 @@ footer#ver{padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;bor
     <label>ISBN</label><input id="cIsbn"><label></label><span></span>
     <label>Titre</label><input id="cTitre"><label>Auteur</label><input id="cAuteur">
   </div>
+  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label> <small class="muted">(ISBN d'abord, puis auteur &amp; titre si les deux sont cochés)</small></div>
   <div class="row" style="margin-top:8px"><button id="cGo">Rechercher</button></div>
+  <div id="cInfo" style="font-size:13px;margin-top:8px"></div>
   <div id="cList"></div>
   <div class="row"><label style="margin-right:auto"><input type="checkbox" id="cOver"> écraser les champs déjà remplis</label><button id="cClose" class="sec">Fermer</button></div>
 </dialog>
@@ -419,8 +421,9 @@ function edit(i){
   $("dlg").showModal();
 }
 const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,k==="a_verifier"?($("f_"+k).checked?"1":""):$("f_"+k).value.trim()]));
+let pending={};
 $("bBnf").onclick=async()=>{
-  const useI=$("oIsbn").checked,useT=$("oTitle").checked,msg=t=>$("fMsg").textContent=t;
+  const useI=$("oIsbn").checked,useT=$("oTitle").checked,msg=t=>{$("fMsg").textContent=t};
   localStorage.setItem("livrotheque.bnf.isbn",useI?"1":"0");localStorage.setItem("livrotheque.bnf.title",useT?"1":"0");
   if(!useI&&!useT)return msg("Cochez au moins une méthode de recherche : ISBN et/ou auteur & titre.");
   const t=$("f_titre").value.trim(),a=$("f_auteur").value.trim(),isbn=cleanIsbn($("f_isbn").value),notes=[];
@@ -450,16 +453,24 @@ $("bBnf").onclick=async()=>{
     }
   }
   if(!method)return msg("Aucune correction : "+notes.join(" ; ")+".");
-  const out=[];
-  if(pt){const m=/^\s*\([^)]*\)\s*/.exec(t);const cap=s=>s.replace(/^\p{Ll}/u,c=>c.toUpperCase());
-    const n=method==="ISBN"?(m?m[0]:"")+cap(pt):TX.rebuildTitle(t,core,pt);if(n!==t){$("f_titre").value=n;out.push("titre")}}
+  const out=[],m=/^\s*\([^)]*\)\s*/.exec(t),cap=s=>s.replace(/^\p{Ll}/u,c=>c.toUpperCase());
+  const bnfTitle=isbnTitle?(m?m[0]:"")+cap(isbnTitle):null;       // titre BnF complet (préfixe de série conservé)
+  if(pt){const n=method==="ISBN"?bnfTitle:TX.rebuildTitle(t,core,pt);if(n!==t){$("f_titre").value=n;out.push("titre")}}
   if(pa&&pa!==a){$("f_auteur").value=pa;out.push("auteur")}
   if(pt&&(pa||!a))$("f_a_verifier").checked=false;
-  const diff=[];
-  if(method==="ISBN"&&!pt&&isbnTitle)diff.push("titre BnF différent : « "+isbnTitle+" » (non appliqué)");
-  if(method==="ISBN"&&!pa&&isbnAuthor&&tok(a)!==tok(isbnAuthor))diff.push("auteur BnF différent : « "+isbnAuthor+" » (non appliqué)");
-  msg((out.length?"Corrigé d'après la BnF (par "+method+") : "+out.join(" et ")+".":"Déjà conforme à la BnF (par "+method+").")+(diff.length?" Attention : "+diff.join(" ; ")+".":""));
+  /* écarts non appliqués (ISBN seulement) : on les montre avec la valeur saisie, la valeur BnF et un lien pour appliquer */
+  const lines=[],e=esc;pending={};
+  if(method==="ISBN"&&!pt&&isbnTitle){pending.titre=bnfTitle;lines.push(`⚠ Titre différent : saisi « ${e(t)} » · BnF « ${e(bnfTitle)} » — <a href="#" data-apply="titre">appliquer le titre de la BnF</a>`)}
+  if(method==="ISBN"&&!pa&&isbnAuthor&&tok(a)!==tok(isbnAuthor)){pending.auteur=isbnAuthor;lines.push(`⚠ Auteur différent : saisi « ${e(a)} » · BnF « ${e(isbnAuthor)} » — <a href="#" data-apply="auteur">appliquer l'auteur de la BnF</a>`)}
+  const head=out.length?`✔ Corrigé d'après la BnF (par ${method}) : ${out.join(" et ")}.`:(lines.length?`ℹ BnF (par ${method}) : aucune correction automatique.`:`✔ Déjà conforme à la BnF (par ${method}).`);
+  $("fMsg").innerHTML=[head,...lines].join("<br>");
 };
+$("fMsg").addEventListener("click",ev=>{
+  const a=ev.target.closest("a[data-apply]");if(!a)return;ev.preventDefault();
+  const k=a.dataset.apply;if(!pending[k])return;
+  $("f_"+(k==="titre"?"titre":"auteur")).value=pending[k];delete pending[k];a.outerHTML="<b>✔ appliqué</b>";
+  if(!pending.titre&&!pending.auteur)$("f_a_verifier").checked=false;
+});
 $("bAdd").onclick=()=>edit(null);
 $("bCancel").onclick=()=>$("dlg").close();
 $("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.titleCase(v.titre);if(v.auteur&&(TX.mostlyUpper(v.auteur)||v.auteur===v.auteur.toLowerCase()))v.auteur=TX.authorCase(v.auteur);if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
@@ -520,11 +531,24 @@ function applyTo(target,c,over){
 
 /* fenêtre de recherche manuelle */
 let cands=[];
-$("bLookup").onclick=()=>{const v=formVals();$("cIsbn").value=v.isbn;$("cTitre").value=v.titre;$("cAuteur").value=v.auteur;$("cList").innerHTML="";$("dlgC").showModal();if(v.isbn||v.titre)$("cGo").click()};
+$("bLookup").onclick=()=>{const v=formVals();$("cIsbnOn").checked=localStorage.getItem("livrotheque.bnf.isbn")!=="0";$("cTitleOn").checked=localStorage.getItem("livrotheque.bnf.title")!=="0";$("cInfo").textContent="";$("cIsbn").value=v.isbn;$("cTitre").value=v.titre;$("cAuteur").value=v.auteur;$("cList").innerHTML="";$("dlgC").showModal();if(v.isbn||v.titre)$("cGo").click()};
 $("cClose").onclick=()=>$("dlgC").close();
 $("cGo").onclick=async()=>{
-  $("cList").textContent="Recherche…";
-  cands=await lookup(cleanIsbn($("cIsbn").value),$("cTitre").value,$("cAuteur").value);
+  const useI=$("cIsbnOn").checked,useT=$("cTitleOn").checked;
+  localStorage.setItem("livrotheque.bnf.isbn",useI?"1":"0");localStorage.setItem("livrotheque.bnf.title",useT?"1":"0");
+  if(!useI&&!useT){cands=[];$("cList").innerHTML="";return $("cInfo").textContent="Cochez au moins une méthode de recherche : ISBN et/ou auteur & titre."}
+  const isbn=cleanIsbn($("cIsbn").value),titre=$("cTitre").value.trim(),auteur=$("cAuteur").value.trim(),notes=[];let via="";
+  cands=[];$("cList").textContent="Recherche…";$("cInfo").textContent="";
+  if(useI){
+    if(!isbn)notes.push("pas d'ISBN saisi");
+    else if(!TX.isbnValid(isbn))notes.push("ISBN invalide (clé de contrôle)");
+    else{cands=await lookup(isbn,"","");if(cands.length)via="ISBN";else notes.push("ISBN introuvable")}
+  }
+  if(!cands.length&&useT){
+    if(!titre&&!auteur)notes.push("ni titre ni auteur saisi");
+    else{cands=await lookup("",titre,auteur);if(cands.length)via="auteur et titre";else notes.push("aucun résultat par auteur et titre")}
+  }
+  $("cInfo").textContent=cands.length?"Résultats trouvés par "+via+(notes.length?" ("+notes.join(" ; ")+")":"")+".":"Aucun résultat : "+notes.join(" ; ")+".";
   $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}">`:"<img>"}<div><b>${esc(c.titre)}</b><br>${esc(c.auteur)} <small>· ${esc(c.editeur)} · ${c.nb_pages||"?"} p · ISBN ${esc(c.isbn)} · ${c.src}</small><br><small>${esc((c.resume||"").slice(0,160))}</small></div></div>`).join(""):"Aucun résultat (ou service injoignable).";
 };
 $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
@@ -554,7 +578,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:54:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T20:00:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
