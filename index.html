@@ -21,7 +21,7 @@ header label{font-size:13px;white-space:nowrap}
 #foldbar .sep{margin:0 10px;color:#b9a98f}
 #foldbar.off a{color:#aaa;cursor:default;text-decoration:none}
 a.foldlink{color:#5b3a29;font-size:13px;text-decoration:underline;cursor:pointer}
-#info{font-size:13px;opacity:.9;min-width:290px}
+#info{font-size:13px;opacity:.9}
 main{padding:12px 16px;flex:1}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{padding:6px 8px;border-bottom:1px solid #e6e0d4;text-align:left;vertical-align:middle}
@@ -71,10 +71,11 @@ footer#ver{padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;bor
     <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
   </div>
   <div class="brk"></div>
-  <span id="info"></span>
   <button id="bAdd">+ Ajouter</button>
   <button id="bSync" class="sec" title="Synchronisation avec un dépôt GitHub privé">☁ Synchro</button>
   <span id="sync" style="font-size:12px"></span>
+  <div class="brk"></div>
+  <span id="info"></span>
   <input type="file" id="file" accept=".csv,.txt,.tsv" hidden>
 </header>
 <div id="ov"></div>
@@ -552,7 +553,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:49:57Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:51:37Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
