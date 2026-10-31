@@ -12,7 +12,11 @@ header h1{font-size:18px;margin:0 12px 0 0}
 header input[type=search]{padding:6px 10px;border:0;border-radius:4px;min-width:240px}
 button{padding:6px 12px;border:0;border-radius:4px;background:#d9b382;color:#2b1a10;cursor:pointer;font:inherit}
 button:hover{background:#e8c796}button.sec{background:#eee}button.danger{background:#e57373;color:#fff}
-header label{font-size:13px}
+header label{font-size:13px;white-space:nowrap}
+.sf{display:flex;align-items:center;gap:12px;flex-wrap:nowrap}
+.sf input[type=search]{flex:0 1 380px;min-width:180px}
+tr.foldrow td{text-align:center;padding:6px;border-bottom:0;background:#fff;cursor:default}
+a.foldlink{color:#5b3a29;font-size:13px;text-decoration:underline;cursor:pointer}
 #info{margin-left:auto;font-size:13px;opacity:.9}
 main{padding:12px 16px}
 table{border-collapse:collapse;width:100%;background:#fff}
@@ -53,12 +57,13 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 <body>
 <header>
   <h1>📚 Ma Livrothèque</h1>
-  <input type="search" id="q" placeholder="Rechercher (auteur, titre, résumé, ISBN…)">
-  <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
-  <label><input type="checkbox" id="fNoRes"> sans résumé</label>
-  <label><input type="checkbox" id="fUnread"> non lus</label>
-  <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
-  <button id="bFold" class="sec">Tout déplier</button>
+  <div class="sf">
+    <input type="search" id="q" placeholder="Rechercher (auteur, titre, résumé, ISBN…)">
+    <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
+    <label><input type="checkbox" id="fNoRes"> sans résumé</label>
+    <label><input type="checkbox" id="fUnread"> non lus</label>
+    <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
+  </div>
   <button id="bAdd">+ Ajouter</button>
   <button id="bSync" class="sec" title="Synchronisation avec un dépôt GitHub privé">☁ Synchro</button>
   <span id="sync" style="font-size:12px"></span>
@@ -307,7 +312,8 @@ function render(){
   const row=([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+cols.map(([k])=>
     k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
     k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&b.a_verifier?`<td title="À vérifier : ${esc(b[k])}"><span class="warn">⚠</span> ${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
-  let out="",cur="";
+  const allOpen=letters.length>0&&letters.every(l=>expanded.has(l));
+  let out=grouped&&!filtering&&letters.length?`<tr class="foldrow"><td colspan="${cols.length+1}"><a class="foldlink" href="#">${allOpen?"Tout replier":"Tout déplier"}</a></td></tr>`:"",cur="";
   for(const it of list){
     if(grouped){
       const l=letterOf(it[0][sortKey]);
@@ -318,11 +324,9 @@ function render(){
   }
   $("tbody").innerHTML=out;
   hydrateCovers($("tbody"));
-  $("bFold").style.display=grouped&&!filtering?"":"none";
-  $("bFold").textContent=letters.length&&letters.every(l=>expanded.has(l))?"Tout replier":"Tout déplier";
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier`;
 }
-$("bFold").onclick=()=>{if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()};
+$("tbody").addEventListener("click",e=>{if(!e.target.closest("a.foldlink"))return;e.preventDefault();if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()});
 $("tbody").addEventListener("click",e=>{const g=e.target.closest("tr.grp");if(!g)return;const l=g.dataset.l;expanded.has(l)?expanded.delete(l):expanded.add(l);render()});
 /* aperçu du résumé : au survol, et épinglé au clic */
 let ovPinned=null;
@@ -359,8 +363,7 @@ $("vClose").onclick=()=>$("dlgV").close();
 $("vOk").onclick=()=>{books[vIdx].a_verifier="";save();render();$("dlgV").close()};
 $("vEdit").onclick=()=>{$("dlgV").close();edit(vIdx)};
 $("q").addEventListener("input",render);
-/* cocher un filtre déplie les lettres concernées (on peut ensuite replier à la main) */
-["fNoIsbn","fNoRes","fUnread","fCheck"].forEach(id=>$(id).addEventListener("input",()=>{render();if($(id).checked){letters.forEach(l=>expanded.add(l));render()}}));
+["fNoIsbn","fNoRes","fUnread","fCheck"].forEach(id=>$(id).addEventListener("input",render)); /* un filtre ne change pas l'état plié/déplié des lettres */
 
 /* ---------- Édition ---------- */
 function edit(i){
@@ -484,7 +487,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:22:37Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:26:37Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
