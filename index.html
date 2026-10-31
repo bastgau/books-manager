@@ -138,7 +138,7 @@ dialog h4{margin:14px 0 4px}
     <label>ISBN</label><input id="cIsbn"><label></label><span></span>
     <label>Titre</label><input id="cTitre"><label>Auteur</label><input id="cAuteur">
   </div>
-  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label> <small class="muted">(ISBN d'abord, puis auteur &amp; titre si les deux sont cochés)</small></div>
+  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label> <small class="muted">(par défaut : ISBN s'il est valide, sinon auteur &amp; titre ; si les deux sont cochés, ISBN d'abord)</small></div>
   <div class="row" style="margin-top:8px"><button id="cGo">Rechercher</button></div>
   <div id="cInfo" style="font-size:13px;margin-top:8px"></div>
   <div id="cList"></div>
@@ -488,11 +488,15 @@ function applyTo(target,c,over){
 
 /* fenêtre de recherche manuelle */
 let cands=[];
-$("bLookup").onclick=()=>{const v=formVals();$("cIsbnOn").checked=localStorage.getItem("livrotheque.search.isbn")!=="0";$("cTitleOn").checked=localStorage.getItem("livrotheque.search.title")!=="0";$("cInfo").textContent="";$("cIsbn").value=v.isbn;$("cTitre").value=v.titre;$("cAuteur").value=v.auteur;$("cList").innerHTML="";$("dlgC").showModal();if(v.isbn||v.titre)$("cGo").click()};
+/* méthode par défaut : par ISBN si un ISBN valide existe, sinon par auteur & titre (modifiable ; ISBN absent ou invalide = recherche impossible par ISBN) */
+let cTouched=false;
+const defaultMethod=()=>{if(cTouched)return;const i=cleanIsbn($("cIsbn").value),byIsbn=!!i&&TX.isbnValid(i);$("cIsbnOn").checked=byIsbn;$("cTitleOn").checked=!byIsbn};
+$("cIsbn").addEventListener("input",defaultMethod);
+["cIsbnOn","cTitleOn"].forEach(id=>$(id).addEventListener("change",()=>{cTouched=true}));
+$("bLookup").onclick=()=>{const v=formVals();cTouched=false;$("cInfo").textContent="";$("cIsbn").value=v.isbn;$("cTitre").value=v.titre;$("cAuteur").value=v.auteur;defaultMethod();$("cList").innerHTML="";$("dlgC").showModal();if(v.isbn||v.titre)$("cGo").click()};
 $("cClose").onclick=()=>$("dlgC").close();
 $("cGo").onclick=async()=>{
   const useI=$("cIsbnOn").checked,useT=$("cTitleOn").checked;
-  localStorage.setItem("livrotheque.search.isbn",useI?"1":"0");localStorage.setItem("livrotheque.search.title",useT?"1":"0");
   if(!useI&&!useT){cands=[];$("cList").innerHTML="";return $("cInfo").textContent="Cochez au moins une méthode de recherche : ISBN et/ou auteur & titre."}
   const isbn=cleanIsbn($("cIsbn").value),titre=$("cTitre").value.trim(),auteur=$("cAuteur").value.trim(),notes=[];let via="";
   cands=[];gbState.status="";$("cList").textContent="Recherche…";$("cInfo").textContent="";
@@ -536,7 +540,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T22:22:17Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T22:23:20Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
