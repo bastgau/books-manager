@@ -63,7 +63,8 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
 footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;line-height:1.5;color:#e9dccf;background:#5b3a29;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
 #verHist{color:#f3dcb8;text-decoration:underline;white-space:nowrap}
-.hlist div{display:flex;gap:10px;padding:4px 0;border-bottom:1px solid #eee;font-size:13px}.hlist time{color:#777;white-space:nowrap;min-width:9.5em}.hlist code{color:#5b3a29;min-width:4.6em}.hlist span{flex:1}
+.hc{border-bottom:1px solid #eee;padding:6px 0}.hh{display:flex;gap:10px;font-size:13px}.hh time{color:#777;white-space:nowrap;min-width:9.5em}.hh code{color:#5b3a29;min-width:4.6em}.hh span{flex:1;font-weight:600}
+.hb{font-size:12.5px;color:#444;padding:3px 0 0 0}.hb div{padding:1px 0}
 dialog h4{margin:14px 0 4px}
 /* ---------- mobile / tablette : une colonne de contenu, pas de largeur minimale ---------- */
 @media (max-width:900px){
@@ -195,9 +196,8 @@ dialog h4{margin:14px 0 4px}
   <div class="row"><button id="sClose" class="sec">Fermer</button></div>
 </dialog>
 <dialog id="dlgH">
-  <h3>Dernières modifications</h3>
-  <h4>Application</h4><div id="hApp"></div>
-  <h4>Bibliothèque ouverte</h4><div id="hDb"></div>
+  <h3>Dernières modifications de la bibliothèque</h3>
+  <div id="hDb"></div>
   <div class="row"><button id="hClose" class="sec">Fermer</button></div>
 </dialog>
 <div id="prog"></div>
@@ -517,7 +517,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T21:10:28Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T21:17:04Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -534,16 +534,108 @@ async function appVersion(){
   }catch(e){}
   renderVer();
 }
-/* ---------- Dernières modifications : 10 derniers commits de l'application (public) et de la bibliothèque ouverte (jeton) ---------- */
-const histRows=l=>l.length?`<div class="hlist">${l.map(x=>`<div><time>${esc(new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))}</time><code>${x.sha.slice(0,7)}</code><span>${esc(x.commit.message.split("\n")[0])}</span></div>`).join("")}</div>`:'<span class="muted">Aucune modification.</span>';
-async function loadHist(){
-  $("hApp").textContent="Chargement…";$("hDb").textContent="Chargement…";
-  const c=cfg(),withDb=!!(lib()&&c.repo&&c.token);
-  const get=async(url,tok)=>{try{const r=await fetch(url,tok?{headers:{Authorization:"Bearer "+tok,Accept:"application/vnd.github+json"}}:undefined);return r.ok?histRows(await r.json()):"Indisponible (erreur "+r.status+")."}catch(e){return "Indisponible (réseau)."}};
-  const pa=get(`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=10`).then(t=>{$("hApp").innerHTML=t});
-  const pd=withDb?get(`https://api.github.com/repos/${c.repo}/commits?sha=${encodeURIComponent(c.branch)}&path=${encodeURIComponent("libraries/"+lib()+"-database.csv")}&per_page=10`,c.token).then(t=>{$("hDb").innerHTML=t}):($("hDb").textContent="Aucune bibliothèque synchronisée.");
-  await Promise.all([pa,pd]);
+/* ---------- Dernières modifications de la bibliothèque : 10 derniers commits du fichier, avec le détail livre par livre ---------- */
+const COLK=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier"];
+const FLAB={auteur:"auteur",titre:"titre",date_lecture:"lu le",nb_pages:"pages",localisation:"localisation",resume:"résumé",isbn:"ISBN",date_achat:"acheté le",date_entree:"entré le",couverture:"pochette",a_verifier:"à vérifier"};
+const isHeaderLine=l=>/^﻿?"auteur"\t/.test(l);
+const parseRow=l=>{const c=l.replace(/\r$/,"").replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"")),o={};COLK.forEach((k,i)=>o[k]=c[i]||"");return o};
+const shortTxt=(s,n=38)=>s.length>n?s.slice(0,n-1)+"…":s;
+const rowLabel=b=>(b.auteur||"?")+" — "+(b.titre||"?");
+/* groupes de lignes supprimées / ajoutées -> liste de changements lisibles */
+function describeGroups(groups){
+  const out=[];let header=false;
+  const keyOf=b=>b.isbn?"i:"+b.isbn:"t:"+nk(b.auteur)+"|"+nk(b.titre);
+  for(const g of groups){
+    const rem=g.rem.filter(l=>l.trim()),add=g.add.filter(l=>l.trim());
+    if(rem.some(isHeaderLine)||add.some(isHeaderLine))header=true;
+    const R=rem.filter(l=>!isHeaderLine(l)).map(parseRow),A=add.filter(l=>!isHeaderLine(l)).map(parseRow);
+    const pairs=[],delR=[];let addA=[...A];
+    if(R.length===A.length){
+      addA=[];
+      R.forEach((r,i)=>{const x=A[i];
+        // auteur ET titre différents (accents/casse ignorés) : ce n'est pas la même fiche, donc une suppression et un ajout
+        if(nk(r.auteur)!==nk(x.auteur)&&nk(r.titre)!==nk(x.titre)){delR.push(r);addA.push(x)}else pairs.push([r,x])});
+    }
+    else R.forEach(r=>{const j=addA.findIndex(a=>keyOf(a)===keyOf(r));if(j>=0)pairs.push([r,addA.splice(j,1)[0]]);else delR.push(r)});
+    for(const [r,a] of pairs){
+      const ch=COLK.filter(k=>r[k]!==a[k]).map(k=>k==="a_verifier"?(a[k]?"marqué à vérifier":"vérifié"):k==="resume"?"résumé modifié":!r[k]?FLAB[k]+" ajouté « "+shortTxt(a[k])+" »":!a[k]?FLAB[k]+" supprimé":FLAB[k]+" « "+shortTxt(r[k])+" » → « "+shortTxt(a[k])+" »");
+      if(ch.length)out.push({t:"mod",label:rowLabel(a),ch,fields:COLK.filter(k=>r[k]!==a[k])});
+    }
+    delR.forEach(r=>out.push({t:"del",label:rowLabel(r)}));addA.forEach(a=>out.push({t:"add",label:rowLabel(a)}));
+  }
+  return {entries:out,header};
 }
+/* diff d'un patch unifié (petites modifications) */
+function groupsFromPatch(patch){
+  const groups=[];let cur=null;
+  for(const l of patch.split("\n")){
+    if(l.startsWith("@@")||l.startsWith("\\")||l.startsWith(" ")||l===""){cur=null;continue}
+    if(l[0]==="-"){if(!cur||cur.add.length)groups.push(cur={rem:[],add:[]});cur.rem.push(l.slice(1))}
+    else if(l[0]==="+"){if(!cur)groups.push(cur={rem:[],add:[]});cur.add.push(l.slice(1))}
+  }
+  return groups;
+}
+/* diff de deux versions complètes du fichier (modifications en masse, sans patch fourni par GitHub) */
+function groupsFromTexts(a,b){
+  const A=a.split("\n"),B=b.split("\n");let s=0;
+  while(s<A.length&&s<B.length&&A[s]===B[s])s++;
+  let ea=A.length,eb=B.length;while(ea>s&&eb>s&&A[ea-1]===B[eb-1]){ea--;eb--}
+  const X=A.slice(s,ea),Y=B.slice(s,eb),n=X.length,m=Y.length,w=m+1,dp=new Uint16Array((n+1)*w);
+  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)dp[i*w+j]=X[i]===Y[j]?dp[(i+1)*w+j+1]+1:Math.max(dp[(i+1)*w+j],dp[i*w+j+1]);
+  const groups=[];let cur=null,i=0,j=0;
+  const rem=l=>{if(!cur||cur.add.length)groups.push(cur={rem:[],add:[]});cur.rem.push(l)},ins=l=>{if(!cur)groups.push(cur={rem:[],add:[]});cur.add.push(l)};
+  while(i<n||j<m){
+    if(i<n&&j<m&&X[i]===Y[j]){cur=null;i++;j++}
+    else if(i<n&&(j>=m||dp[(i+1)*w+j]>=dp[i*w+j+1]))rem(X[i++]);   // à égalité, on retire d'abord : la ligne modifiée forme un groupe supprimé/ajouté
+    else ins(Y[j++]);
+  }
+  return groups;
+}
+function renderChanges(es,header){
+  const mods=es.filter(e=>e.t==="mod"),adds=es.filter(e=>e.t==="add"),dels=es.filter(e=>e.t==="del"),L=[];
+  const sum=[];if(mods.length)sum.push(mods.length+" livre"+(mods.length>1?"s":"")+" modifié"+(mods.length>1?"s":""));if(adds.length)sum.push(adds.length+" ajouté"+(adds.length>1?"s":""));if(dels.length)sum.push(dels.length+" supprimé"+(dels.length>1?"s":""));
+  if(header)L.push("<div>Colonnes du fichier modifiées</div>");
+  if(!es.length)return L.join("")||"<div class='muted'>Aucun livre modifié.</div>";
+  if(es.length>8){
+    const f=new Set(mods.flatMap(e=>e.fields));
+    L.push("<div><b>"+sum.join(", ")+"</b>"+(f.size?" — champs concernés : "+[...f].map(k=>FLAB[k]).join(", "):"")+"</div>");
+  }
+  const show=es.slice(0,es.length>8?5:8);
+  for(const e of show)L.push(e.t==="mod"?"<div>✎ <b>"+esc(e.label)+"</b> : "+e.ch.map(esc).join(" ; ")+"</div>":e.t==="add"?"<div>＋ ajouté : <b>"+esc(e.label)+"</b></div>":"<div>－ supprimé : <b>"+esc(e.label)+"</b></div>");
+  if(es.length>show.length)L.push("<div class='muted'>… et "+(es.length-show.length)+" autre"+(es.length-show.length>1?"s":"")+"</div>");
+  if(es.length<=8&&sum.length>1)L.unshift("<div class='muted'>"+sum.join(", ")+"</div>");
+  return L.join("");
+}
+async function loadHist(){
+  const c=cfg();
+  if(!lib()||!c.repo||!c.token){$("hDb").innerHTML="<span class='muted'>Aucune bibliothèque synchronisée : pas d'historique à afficher.</span>";return}
+  $("hDb").textContent="Chargement…";
+  const H={headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"}},path="libraries/"+lib()+"-database.csv",base="https://api.github.com/repos/"+c.repo;
+  try{
+    const r=await fetch(base+"/commits?sha="+encodeURIComponent(c.branch)+"&path="+encodeURIComponent(path)+"&per_page=10",H);
+    if(!r.ok)throw new Error(r.status);
+    const list=await r.json();
+    if(!list.length){$("hDb").innerHTML="<span class='muted'>Aucune modification.</span>";return}
+    const details=await Promise.all(list.map(x=>fetch(base+"/commits/"+x.sha,H).then(d=>d.ok?d.json():null).catch(()=>null)));
+    $("hDb").innerHTML='<div class="hlist">'+list.map((x,i)=>{
+      const f=details[i]&&(details[i].files||[]).find(z=>z.filename===path);
+      let body;
+      if(f&&f.patch){const d=describeGroups(groupsFromPatch(f.patch));body=renderChanges(d.entries,d.header)}
+      else if(f&&details[i].parents&&details[i].parents.length)body='<div>'+(f.additions||"?")+' ligne(s) modifiée(s) <a href="#" data-hist="'+x.sha+'" data-parent="'+details[i].parents[0].sha+'">voir le détail</a></div>';
+      else body='<div class="muted">Création du fichier.</div>';
+      return '<div class="hc"><div class="hh"><time>'+esc(new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+'</time><code>'+x.sha.slice(0,7)+'</code><span>'+esc(x.commit.message.split("\n")[0])+'</span></div><div class="hb" id="hb-'+x.sha+'">'+body+'</div></div>'}).join("")+'</div>';
+  }catch(e){$("hDb").textContent="Indisponible (erreur "+(e.message||"réseau")+")."}
+}
+$("hDb").addEventListener("click",async ev=>{
+  const a=ev.target.closest("a[data-hist]");if(!a)return;ev.preventDefault();
+  const c=cfg(),box=document.getElementById("hb-"+a.dataset.hist),path="libraries/"+lib()+"-database.csv";
+  box.textContent="Comparaison des versions…";
+  try{
+    const get=ref=>fetch("https://api.github.com/repos/"+c.repo+"/contents/"+path+"?ref="+ref,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text()});
+    const [before,after]=await Promise.all([get(a.dataset.parent),get(a.dataset.hist)]);
+    const d=describeGroups(groupsFromTexts(before,after));box.innerHTML=renderChanges(d.entries,d.header);
+  }catch(e){box.textContent="Détail indisponible ("+(e.message||"réseau")+")."}
+});
 $("verHist").onclick=e=>{e.preventDefault();$("dlgH").showModal();loadHist()};
 $("hClose").onclick=()=>$("dlgH").close();
 let verTimer=null;
