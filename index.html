@@ -6,22 +6,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}
-body{font:14px system-ui,sans-serif;margin:0;color:#222;background:#f4f1ea;min-width:1322px;min-height:100vh;display:flex;flex-direction:column}
+body{font:14px system-ui,sans-serif;margin:0;color:#222;background:#f4f1ea;min-width:1322px;min-height:100%;display:flex;flex-direction:column}
+html{height:100%}
 header{background:#5b3a29;color:#fff;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:5}
 header h1{font-size:18px;margin:0 12px 0 0}
 header input[type=search]{padding:6px 10px;border:0;border-radius:4px;min-width:240px}
 button{padding:6px 12px;border:0;border-radius:4px;background:#d9b382;color:#2b1a10;cursor:pointer;font:inherit}
 button:hover{background:#e8c796}button.sec{background:#eee}button.danger{background:#e57373;color:#fff}
 header label{font-size:13px;white-space:nowrap}
-.sf{display:flex;align-items:center;gap:12px;flex-wrap:nowrap}
-.sf input[type=search]{flex:0 1 380px;min-width:180px}
-tr.foldrow td{text-align:center;padding:6px;border-bottom:0;background:#fff;cursor:default}
+.sf{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;flex:1 1 auto}
+.sf input[type=search]{flex:0 1 420px;min-width:180px}
+.brk{flex-basis:100%;height:0}
+#foldbar{text-align:center;padding:0 0 8px;font-size:13px}
+#foldbar .sep{margin:0 10px;color:#b9a98f}
+#foldbar.off a{color:#aaa;cursor:default;text-decoration:none}
 a.foldlink{color:#5b3a29;font-size:13px;text-decoration:underline;cursor:pointer}
 #info{margin-left:auto;font-size:13px;opacity:.9}
 main{padding:12px 16px;flex:1}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{padding:6px 8px;border-bottom:1px solid #e6e0d4;text-align:left;vertical-align:middle}
-th{background:#ece5d6;cursor:pointer;position:sticky;top:52px;user-select:none;white-space:nowrap}
+th{background:#ece5d6;cursor:pointer;position:sticky;top:var(--hh,52px);user-select:none;white-space:nowrap}
 tr:hover td{background:#faf5ea}
 td.r{max-width:380px;color:#555;font-size:12px}
 .tag{display:inline-block;background:#e4eed8;border-radius:10px;padding:0 7px;font-size:12px}
@@ -53,7 +57,6 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #ov b{display:block;margin-bottom:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
 footer#ver{padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
-a.foldlink.off{color:#aaa;cursor:default;text-decoration:none}
 #bnfOpts{font-size:13px;margin:6px 0 0}#bnfOpts label{margin-right:12px;white-space:nowrap}
 </style>
 </head>
@@ -67,7 +70,9 @@ a.foldlink.off{color:#aaa;cursor:default;text-decoration:none}
     <label><input type="checkbox" id="fUnread"> non lus</label>
     <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
   </div>
+  <div class="brk"></div>
   <button id="bAdd">+ Ajouter</button>
+  <div class="brk"></div>
   <button id="bSync" class="sec" title="Synchronisation avec un dépôt GitHub privé">☁ Synchro</button>
   <span id="sync" style="font-size:12px"></span>
   <span id="info"></span>
@@ -75,6 +80,7 @@ a.foldlink.off{color:#aaa;cursor:default;text-decoration:none}
 </header>
 <div id="ov"></div>
 <main>
+<div id="foldbar"><a class="foldlink" data-a="open" href="#">Tout déplier</a><span class="sep">|</span><a class="foldlink" data-a="close" href="#">Tout replier</a></div>
 <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
 </main>
 <footer id="ver"></footer>
@@ -343,8 +349,8 @@ function render(){
   const row=([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+cols.map(([k])=>
     k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
     k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&b.a_verifier?`<td title="À vérifier : ${esc(b[k])}"><span class="warn">⚠</span> ${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
-  const allOpen=letters.length>0&&letters.every(l=>expanded.has(l));
-  let out=`<tr class="foldrow"><td colspan="${cols.length+1}"><a class="foldlink${letters.length?"":" off"}" href="#" title="${letters.length?"":"Disponible avec le tri par auteur ou par titre"}">${allOpen?"Tout replier":"Tout déplier"}</a></td></tr>`,cur="";
+  $("foldbar").className=letters.length?"":"off";$("foldbar").title=letters.length?"":"Disponible avec le tri par auteur ou par titre";
+  let out="",cur="";
   for(const it of list){
     if(grouped){
       const l=letterOf(it[0][sortKey]);
@@ -357,7 +363,7 @@ function render(){
   hydrateCovers($("tbody"));
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier`;
 }
-$("tbody").addEventListener("click",e=>{if(!e.target.closest("a.foldlink"))return;e.preventDefault();if(!letters.length)return;if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()});
+$("foldbar").addEventListener("click",e=>{const a=e.target.closest("a.foldlink");if(!a)return;e.preventDefault();if(!letters.length)return;if(a.dataset.a==="open")letters.forEach(l=>expanded.add(l));else expanded.clear();render()});
 $("tbody").addEventListener("click",e=>{const g=e.target.closest("tr.grp");if(!g)return;const l=g.dataset.l;expanded.has(l)?expanded.delete(l):expanded.add(l);render()});
 /* aperçu du résumé : au survol, et épinglé au clic */
 let ovPinned=null;
@@ -547,7 +553,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:36:07Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:47:44Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -681,6 +687,8 @@ $("sMeta").onclick=async()=>{
 window.addEventListener("beforeunload",e=>{if(localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
 
+const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
+window.addEventListener("resize",setHH);setHH();
 render();
 updateLabel();
 renderVer();
