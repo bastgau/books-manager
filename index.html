@@ -61,7 +61,10 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
 #ov b{display:block;margin-bottom:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
-footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;color:#e9dccf;background:#5b3a29}
+footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;line-height:1.5;color:#e9dccf;background:#5b3a29;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+#verHist{color:#f3dcb8;text-decoration:underline;white-space:nowrap}
+.hlist div{display:flex;gap:10px;padding:4px 0;border-bottom:1px solid #eee;font-size:13px}.hlist time{color:#777;white-space:nowrap;min-width:9.5em}.hlist code{color:#5b3a29;min-width:4.6em}.hlist span{flex:1}
+dialog h4{margin:14px 0 4px}
 /* ---------- mobile / tablette : une colonne de contenu, pas de largeur minimale ---------- */
 @media (max-width:900px){
   body{min-width:0}
@@ -110,7 +113,7 @@ footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;color:#e9d
 <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
 <div id="tail"></div>
 </main>
-<footer id="ver"></footer>
+<footer id="ver"><div><div id="verApp"></div><div id="verDb"></div></div><a id="verHist" href="#">Dernières modifications</a></footer>
 
 <dialog id="dlgV">
   <div id="vBody"></div>
@@ -190,6 +193,12 @@ footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;color:#e9d
   </fieldset>
   <p id="sMsg" style="min-height:1.2em"></p>
   <div class="row"><button id="sClose" class="sec">Fermer</button></div>
+</dialog>
+<dialog id="dlgH">
+  <h3>Dernières modifications</h3>
+  <h4>Application</h4><div id="hApp"></div>
+  <h4>Bibliothèque ouverte</h4><div id="hDb"></div>
+  <div class="row"><button id="hClose" class="sec">Fermer</button></div>
 </dialog>
 <div id="prog"></div>
 
@@ -508,11 +517,14 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T21:06:51Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T21:10:28Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
-const renderVer=()=>{$("ver").textContent="Application : "+(appInfo||new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"")+" · Base : "+(dbInfo||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"))};
+const renderVer=()=>{
+  $("verApp").textContent="Application : "+(appInfo||new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"");
+  $("verDb").textContent="Base : "+(dbInfo||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
+};
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
 async function appVersion(){
   try{
@@ -522,6 +534,18 @@ async function appVersion(){
   }catch(e){}
   renderVer();
 }
+/* ---------- Dernières modifications : 10 derniers commits de l'application (public) et de la bibliothèque ouverte (jeton) ---------- */
+const histRows=l=>l.length?`<div class="hlist">${l.map(x=>`<div><time>${esc(new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))}</time><code>${x.sha.slice(0,7)}</code><span>${esc(x.commit.message.split("\n")[0])}</span></div>`).join("")}</div>`:'<span class="muted">Aucune modification.</span>';
+async function loadHist(){
+  $("hApp").textContent="Chargement…";$("hDb").textContent="Chargement…";
+  const c=cfg(),withDb=!!(lib()&&c.repo&&c.token);
+  const get=async(url,tok)=>{try{const r=await fetch(url,tok?{headers:{Authorization:"Bearer "+tok,Accept:"application/vnd.github+json"}}:undefined);return r.ok?histRows(await r.json()):"Indisponible (erreur "+r.status+")."}catch(e){return "Indisponible (réseau)."}};
+  const pa=get(`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=10`).then(t=>{$("hApp").innerHTML=t});
+  const pd=withDb?get(`https://api.github.com/repos/${c.repo}/commits?sha=${encodeURIComponent(c.branch)}&path=${encodeURIComponent("libraries/"+lib()+"-database.csv")}&per_page=10`,c.token).then(t=>{$("hDb").innerHTML=t}):($("hDb").textContent="Aucune bibliothèque synchronisée.");
+  await Promise.all([pa,pd]);
+}
+$("verHist").onclick=e=>{e.preventDefault();$("dlgH").showModal();loadHist()};
+$("hClose").onclick=()=>$("dlgH").close();
 let verTimer=null;
 async function dbVersion(){
   const c=cfg();
