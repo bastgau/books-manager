@@ -84,11 +84,11 @@ textarea{min-height:110px}
     <label>Nom</label><input id="sName" placeholder="Ma bibliothèque">
     <label>Description</label><input id="sDesc">
     <label>Propriétaire</label><input id="sOwner">
-    <label>UUID bibliothèque</label><input id="sLib" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
+    <label>UUID bibliothèque<br><small style="color:#777">pour ouvrir une bibliothèque existante</small></label><input id="sLib" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
   </div>
   <p id="sMsg" style="min-height:1.2em"></p>
   <div class="row">
-    <button id="sCreate" class="sec">+ Créer une bibliothèque</button>
+    <button id="sCreate" class="sec" title="Crée une NOUVELLE bibliothèque vide avec un nouvel UUID">+ Créer une nouvelle bibliothèque</button>
     <button id="sMeta" class="sec">Enregistrer les infos</button>
     <button id="sCopy" class="sec">Copier l'UUID</button>
     <button id="sClose" class="sec">Fermer</button>
@@ -322,6 +322,7 @@ $("sOpen").onclick=async()=>{
 };
 $("sCreate").onclick=async()=>{
   if(!saveAccess())return;
+  if($("sLib").value.trim()&&!confirm("Un UUID est déjà saisi.\n\nPour OUVRIR cette bibliothèque, annulez et cliquez sur « Ouvrir ».\n\nOK = créer quand même une NOUVELLE bibliothèque vide (avec un nouvel UUID)."))return;
   if(!$("sName").value.trim())return sMsg("Donnez un nom à la bibliothèque.",1);
   const id=crypto.randomUUID();sMsg("Création…");
   try{
