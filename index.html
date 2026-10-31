@@ -451,7 +451,23 @@ function dupIndexes(){
 function findDups(v,self){const ks=new Set(dupKeys(v));return books.filter((b,i)=>i!==self&&dupKeys(b).some(k=>ks.has(k)))}
 const gKey=()=>localStorage.getItem("livrotheque.gkey")||"";
 $("bKey").onclick=()=>{const k=prompt("Clé API Google Books (laisser vide pour désactiver Google Books) :",gKey());if(k!==null){localStorage.setItem("livrotheque.gkey",k.trim());alert(k.trim()?"Clé enregistrée.":"Google Books désactivé.")}};
-async function gbSearch(q){if(!gKey())return [];try{return ((await jget(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=8&langRestrict=fr&key=${encodeURIComponent(gKey())}`)).items||[]).map(gbItem)}catch(e){return []}}
+/* Google Books renvoie des erreurs passagères (503, parfois 403 pendant un changement de réglage) : plusieurs essais, et un état affiché à l'utilisateur */
+const gbState={status:""};
+async function gbSearch(q){
+  if(!gKey()){gbState.status="aucune clé enregistrée (☁ Synchro → Clé Google)";return []}
+  const url="https://www.googleapis.com/books/v1/volumes?q="+encodeURIComponent(q)+"&maxResults=8&langRestrict=fr&key="+encodeURIComponent(gKey());
+  let last="";
+  for(let t=0;t<5;t++){
+    try{
+      const r=await fetch(url);
+      if(r.ok){gbState.status="ok";return ((await r.json()).items||[]).map(gbItem)}
+      last=r.status;
+      if(r.status===400||r.status===429)break;             // inutile de réessayer : clé invalide ou quota atteint
+    }catch(e){last="réseau"}
+    await new Promise(res=>setTimeout(res,600*(t+1)));
+  }
+  gbState.status=last===400?"clé refusée par Google (erreur 400) : vérifiez qu'elle est correcte":last===403?"clé non autorisée (erreur 403) : vérifiez ses restrictions et que l'API Books est activée":last===429?"quota atteint (erreur 429) : réessayez plus tard":"indisponible ("+(last==="réseau"?"réseau":"erreur "+last)+")";return [];
+}
 async function olSearch(titre,auteur){
   try{const p=new URLSearchParams({fields:"title,author_name,isbn,number_of_pages_median,cover_i",limit:8});
     if(titre)p.set("title",titre);if(auteur)p.set("author",auteur);
@@ -461,7 +477,9 @@ async function olSearch(titre,auteur){
 async function lookup(isbn,titre,auteur){
   if(isbn){return [...await olIsbn(isbn),...await gbSearch("isbn:"+isbn)]}
   const t=titre.replace(/^\([^)]*\)\s*/,""); // retire le préfixe de tome "(3) "
-  return [...await gbSearch(`intitle:${t}`+(auteur?`+inauthor:${auteur}`:"")),...await olSearch(t,auteur)];
+  let g=await gbSearch(`intitle:"${t}"`+(auteur?` inauthor:"${auteur}"`:""));
+  if(!g.length&&gbState.status==="ok")g=await gbSearch((t+" "+(auteur||"")).trim());   // repli : texte libre
+  return [...g,...await olSearch(t,auteur)];
 }
 function applyTo(target,c,over){
   for(const k of ["titre","auteur","nb_pages","isbn","resume"]) if(c[k]&&(over||!target[k])) target[k]=String(c[k]);
@@ -477,7 +495,7 @@ $("cGo").onclick=async()=>{
   localStorage.setItem("livrotheque.search.isbn",useI?"1":"0");localStorage.setItem("livrotheque.search.title",useT?"1":"0");
   if(!useI&&!useT){cands=[];$("cList").innerHTML="";return $("cInfo").textContent="Cochez au moins une méthode de recherche : ISBN et/ou auteur & titre."}
   const isbn=cleanIsbn($("cIsbn").value),titre=$("cTitre").value.trim(),auteur=$("cAuteur").value.trim(),notes=[];let via="";
-  cands=[];$("cList").textContent="Recherche…";$("cInfo").textContent="";
+  cands=[];gbState.status="";$("cList").textContent="Recherche…";$("cInfo").textContent="";
   if(useI){
     if(!isbn)notes.push("pas d'ISBN saisi");
     else if(!TX.isbnValid(isbn))notes.push("ISBN invalide (clé de contrôle)");
@@ -487,7 +505,8 @@ $("cGo").onclick=async()=>{
     if(!titre&&!auteur)notes.push("ni titre ni auteur saisi");
     else{cands=await lookup("",titre,auteur);if(cands.length)via="auteur et titre";else notes.push("aucun résultat par auteur et titre")}
   }
-  $("cInfo").textContent=cands.length?"Résultats trouvés par "+via+(notes.length?" ("+notes.join(" ; ")+")":"")+".":"Aucun résultat : "+notes.join(" ; ")+".";
+  const gnote=gbState.status&&gbState.status!=="ok"?" Google Books : "+gbState.status+(gbState.status.startsWith("indisponible")?" — réessayez dans un instant.":"."):"";
+  $("cInfo").textContent=(cands.length?"Résultats trouvés par "+via+(notes.length?" ("+notes.join(" ; ")+")":"")+".":"Aucun résultat : "+notes.join(" ; ")+".")+gnote;
   $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}">`:"<img>"}<div><b>${esc(c.titre)}</b><br>${esc(c.auteur)} <small>· ${esc(c.editeur)} · ${c.nb_pages||"?"} p · ISBN ${esc(c.isbn)} · ${c.src}</small><br><small>${esc((c.resume||"").slice(0,160))}</small></div></div>`).join(""):"Aucun résultat (ou service injoignable).";
 };
 $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
@@ -517,7 +536,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T21:17:04Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T22:19:42Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
