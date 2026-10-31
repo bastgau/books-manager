@@ -561,7 +561,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T22:58:44Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T23:14:34Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -693,7 +693,7 @@ async function dbVersion(){
   }catch(e){dbInfo=""}
   renderVer();
 }
-const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff";if(/synchronisé|à jour/.test(t)){clearTimeout(verTimer);verTimer=setTimeout(()=>{dbVersion();refreshMeta()},600)}};
+const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff";$("sync").style.cursor=/erreur d'envoi/.test(t)?"pointer":"";$("sync").style.textDecoration=/erreur d'envoi/.test(t)?"underline":"";if(/synchronisé|à jour/.test(t)){clearTimeout(verTimer);verTimer=setTimeout(()=>{dbVersion();refreshMeta()},600)}};
 const b64enc=s=>{const u=new TextEncoder().encode(s);let r="";for(let i=0;i<u.length;i+=0x8000)r+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(r)};
 const b64dec=s=>Uint8Array.from(atob(s.replace(/\s/g,"")),c=>c.charCodeAt(0)).buffer;
 async function gh(method,body,id,kind){
@@ -722,10 +722,11 @@ async function pull(){
     else setStatus("☁ erreur de lecture ("+e.message+")","#f99");
   }
 }
-let syncTimer=null,syncing=false;
+let syncTimer=null,syncing=false,retryN=0,retryTimer=null;
 function scheduleSync(){
   if(!cfg().repo||!cfg().token||!lib())return;
   setStatus("☁ modifications à envoyer…","#ffd");
+  retryN=0;clearTimeout(retryTimer);                    // nouvelle modification : on repart de zéro
   clearTimeout(syncTimer);syncTimer=setTimeout(push,2500);
 }
 async function push(){
@@ -733,11 +734,17 @@ async function push(){
   syncing=true;setStatus("☁ envoi…");
   try{
     const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
-    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");setStatus("☁ synchronisé");
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
       if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
-    else setStatus("☁ erreur d'envoi ("+e.message+")","#f99");
+    else{
+      /* réseau injoignable ou bloqué (aucun code HTTP), ou erreur serveur 5xx : on réessaie seul, puis on propose un clic */
+      const net=!e.status,transient=net||e.status>=500;
+      const why=net?"réseau injoignable ou bloqué — vérifiez la connexion ou un bloqueur de publicités":"erreur "+e.message;
+      if(transient&&retryN<5){const d=[5,15,30,60,120][retryN++];setStatus("☁ envoi impossible ("+why+") — nouvelle tentative dans "+d+" s","#f99");clearTimeout(retryTimer);retryTimer=setTimeout(push,d*1000)}
+      else setStatus("☁ erreur d'envoi ("+why+") — cliquez ici pour réessayer","#f99");
+    }
   }finally{syncing=false}
 }
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -771,6 +778,8 @@ function useLib(id){
   books=JSON.parse(localStorage.getItem(ck())||"[]");render();updateLabel();
 }
 const refreshCur=()=>{$("curBox").style.display=lib()?"":"none";$("sCur").textContent=lib()};
+$("sync").onclick=()=>{if(/erreur d'envoi|envoi impossible/.test($("sync").textContent)&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}};
+window.addEventListener("online",()=>{if(cfg().repo&&cfg().token&&lib()&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}});
 $("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value="";["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(lib()?getMeta():null);refreshCur();sMsg("");$("dlgS").showModal()};
 $("sClose").onclick=()=>$("dlgS").close();
 $("sCopy").onclick=()=>{navigator.clipboard?.writeText(lib());sMsg("UUID copié.")};
