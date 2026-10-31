@@ -138,7 +138,7 @@ dialog h4{margin:14px 0 4px}
     <label>ISBN</label><input id="cIsbn"><label></label><span></span>
     <label>Titre</label><input id="cTitre"><label>Auteur</label><input id="cAuteur">
   </div>
-  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label> <small class="muted">(par défaut : ISBN s'il est valide, sinon auteur &amp; titre ; si les deux sont cochés, ISBN d'abord)</small></div>
+  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label> <small class="muted">(par défaut : ISBN s'il est valide, sinon auteur &amp; titre ; si les deux sont cochés, les deux recherches sont faites)</small></div>
   <div class="row" style="margin-top:8px"><button id="cGo">Rechercher</button></div>
   <div id="cInfo" style="font-size:13px;margin-top:8px"></div>
   <div id="cList"></div>
@@ -498,20 +498,25 @@ $("cClose").onclick=()=>$("dlgC").close();
 $("cGo").onclick=async()=>{
   const useI=$("cIsbnOn").checked,useT=$("cTitleOn").checked;
   if(!useI&&!useT){cands=[];$("cList").innerHTML="";return $("cInfo").textContent="Cochez au moins une méthode de recherche : ISBN et/ou auteur & titre."}
-  const isbn=cleanIsbn($("cIsbn").value),titre=$("cTitre").value.trim(),auteur=$("cAuteur").value.trim(),notes=[];let via="";
+  const isbn=cleanIsbn($("cIsbn").value),titre=$("cTitre").value.trim(),auteur=$("cAuteur").value.trim(),notes=[],via=[];
   cands=[];gbState.status="";$("cList").textContent="Recherche…";$("cInfo").textContent="";
+  /* les méthodes cochées sont toutes exécutées ; leurs résultats sont regroupés (sans doublon), ceux de l'ISBN en premier */
+  let byI=[],byT=[];
   if(useI){
     if(!isbn)notes.push("pas d'ISBN saisi");
     else if(!TX.isbnValid(isbn))notes.push("ISBN invalide : sa clé de contrôle est fausse, probablement une faute de frappe"+(useT?"":" — cochez aussi « par auteur & titre » pour retrouver le livre"));
-    else{cands=await lookup(isbn,"","");if(cands.length)via="ISBN";else notes.push("ISBN introuvable")}
+    else{byI=await lookup(isbn,"","");if(byI.length)via.push("ISBN");else notes.push("ISBN introuvable")}
   }
-  if(!cands.length&&useT){
+  if(useT){
     if(!titre&&!auteur)notes.push("ni titre ni auteur saisi");
-    else{cands=await lookup("",titre,auteur);if(cands.length)via="auteur et titre";else notes.push("aucun résultat par auteur et titre")}
+    else{byT=await lookup("",titre,auteur);if(byT.length)via.push("auteur et titre");else notes.push("aucun résultat par auteur et titre")}
   }
+  const seen=new Map();
+  const add=(list,tag)=>list.forEach(c=>{const k=c.src+"|"+(c.isbn||"")+"|"+nk(c.titre)+"|"+nk(c.auteur),o=seen.get(k);if(o){if(!o.via.includes(tag))o.via+=" + "+tag}else{c.via=tag;seen.set(k,c);cands.push(c)}});
+  add(byI,"ISBN");add(byT,"auteur & titre");
   const gnote=gbState.status&&gbState.status!=="ok"?" Google Books : "+gbState.status+(gbState.status.startsWith("indisponible")?" — réessayez dans un instant.":"."):"";
-  $("cInfo").textContent=(cands.length?"Résultats trouvés par "+via+(notes.length?" ("+notes.join(" ; ")+")":"")+".":"Aucun résultat : "+notes.join(" ; ")+".")+gnote;
-  $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}">`:"<img>"}<div><b>${esc(c.titre)}</b><br>${esc(c.auteur)} <small>· ${esc(c.editeur)} · ${c.nb_pages||"?"} p · ISBN ${esc(c.isbn)} · ${c.src}</small><br><small>${esc((c.resume||"").slice(0,160))}</small></div></div>`).join(""):"Aucun résultat (ou service injoignable).";
+  $("cInfo").textContent=(cands.length?cands.length+" résultat"+(cands.length>1?"s":"")+" par "+via.join(" et ")+(notes.length?" ("+notes.join(" ; ")+")":"")+".":"Aucun résultat : "+notes.join(" ; ")+".")+gnote;
+  $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}">`:"<img>"}<div><b>${esc(c.titre)}</b><br>${esc(c.auteur)} <small>· ${esc(c.editeur)} · ${c.nb_pages||"?"} p · ISBN ${esc(c.isbn)} · ${c.src} · trouvé par ${esc(c.via||"")}</small><br><small>${esc((c.resume||"").slice(0,160))}</small></div></div>`).join(""):"Aucun résultat (ou service injoignable).";
 };
 $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
   const c=cands[+el.dataset.i],cur_=formVals();applyTo(cur_,c,$("cOver").checked);
@@ -540,7 +545,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T22:23:20Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T22:40:55Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
