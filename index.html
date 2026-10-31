@@ -484,7 +484,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:20:19Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:22:37Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -524,7 +524,9 @@ async function pull(){
   setStatus("☁ lecture…");
   try{
     const f=await gh("GET");
-    if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null){setStatus("☁ à jour");return}
+    /* même empreinte que la dernière synchro : on garde la copie locale seulement si elle contient des modifications non envoyées ;
+     sinon on relit le fichier (la copie locale peut avoir été lue par une ancienne version de la page, sans toutes les colonnes) */
+    if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".dirty")==="1"){scheduleSync();return}
     const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
     if(dirty&&!confirm("Des modifications locales non synchronisées existent ET le dépôt a changé.\nOK = garder la version du dépôt (perd les modifs locales)\nAnnuler = garder la version locale (écrase le dépôt au prochain enregistrement)")){
       localStorage.setItem(SK+lib()+".sha",f.sha);scheduleSync();return}
