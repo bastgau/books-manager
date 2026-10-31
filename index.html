@@ -138,7 +138,7 @@ dialog h4{margin:14px 0 4px}
     <label>ISBN</label><input id="cIsbn"><label></label><span></span>
     <label>Titre</label><input id="cTitre"><label>Auteur</label><input id="cAuteur">
   </div>
-  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label> <small class="muted">(par défaut : ISBN s'il est valide, sinon auteur &amp; titre ; si les deux sont cochés, les deux recherches sont faites)</small></div>
+  <div id="cOpts" style="font-size:13px;margin:8px 0 0">Recherche : <label><input type="checkbox" id="cIsbnOn"> par ISBN</label> <label><input type="checkbox" id="cTitleOn"> par auteur &amp; titre</label></div>
   <div class="row" style="margin-top:8px"><button id="cGo">Rechercher</button></div>
   <div id="cInfo" style="font-size:13px;margin-top:8px"></div>
   <div id="cList"></div>
@@ -545,7 +545,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T22:40:55Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T22:46:17Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
