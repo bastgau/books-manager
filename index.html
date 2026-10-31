@@ -34,6 +34,7 @@ textarea{min-height:110px}
 #prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
 .cvl{height:150px;width:auto;border-radius:3px;box-shadow:0 2px 8px #0005}
+.warn{color:#c77700;font-weight:700}
 .cv{height:56px;width:auto;display:block;margin:0 auto;border-radius:2px;box-shadow:0 1px 3px #0004}
 .cv:not([src]){width:38px;background:#eee}
 table{table-layout:fixed;min-width:1290px}
@@ -56,6 +57,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
   <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
   <label><input type="checkbox" id="fNoRes"> sans résumé</label>
   <label><input type="checkbox" id="fUnread"> non lus</label>
+  <label><input type="checkbox" id="fCheck"> ⚠ à vérifier</label>
   <button id="bFold" class="sec">Tout déplier</button>
   <button id="bAdd">+ Ajouter</button>
   <button id="bImport" class="sec">Importer CSV</button>
@@ -74,7 +76,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 
 <dialog id="dlgV">
   <div id="vBody"></div>
-  <div class="row"><button id="vEdit">✎ Modifier</button><button id="vClose" class="sec">Fermer</button></div>
+  <div class="row"><button id="vOk" class="sec" style="display:none">✓ Marquer comme vérifié</button><button id="vEdit">✎ Modifier</button><button id="vClose" class="sec">Fermer</button></div>
 </dialog>
 <dialog id="dlg">
   <h3 id="dlgTitle">Livre</h3>
@@ -252,7 +254,7 @@ function repoCover(isbn){
 async function loadCover(i){const u=await repoCover(i.dataset.isbn);if(u)i.src=u;else covErr(i)}
 const coverObs=typeof IntersectionObserver==="function"?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){coverObs.unobserve(e.target);loadCover(e.target)}}),{rootMargin:"200px"}):null;
 const hydrateCovers=root=>root.querySelectorAll("img[data-isbn]").forEach(i=>coverObs?coverObs.observe(i):loadCover(i));
-const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"],["couverture","Pochette (URL)"]];
+const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"],["couverture","Pochette (URL)"],["a_verifier","À vérifier"]];
 const KEY="livrotheque.v1", SK="livrotheque.sync.";
 const lib=()=>localStorage.getItem(SK+"lib")||"";
 const ck=()=>KEY+"."+(lib()||"local");
@@ -285,13 +287,13 @@ const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c
 const expanded=new Set();
 let letters=[];
 function render(){
-  const cols=COLS.filter(([k])=>k!=="couverture");
+  const cols=COLS.filter(([k])=>k!=="couverture"&&k!=="a_verifier");
   $("thead").innerHTML='<th style="width:56px"></th>'+cols.map(([k,l])=>`<th data-k="${k}" style="width:${WIDTHS[k]||"auto"}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
   const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
   let list=books.map((b,i)=>[b,i]).filter(([b])=>
     (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
-    (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture));
+    (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture)&&(!$("fCheck").checked||b.a_verifier));
   const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):/^(auteur|titre)$/.test(sortKey)?norm(b[sortKey]).toLowerCase():String(b[sortKey]).toLowerCase();
   list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir||String(a[0].titre).localeCompare(String(b[0].titre))});
   const grouped=/^(auteur|titre)$/.test(sortKey);
@@ -299,7 +301,7 @@ function render(){
   letters=Object.keys(counts);
   const row=([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+cols.map(([k])=>
     k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
-    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
+    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&b.a_verifier?`<td title="À vérifier : ${esc(b[k])}"><span class="warn">⚠</span> ${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
   let out="",cur="";
   for(const it of list){
     if(grouped){
@@ -313,7 +315,7 @@ function render(){
   hydrateCovers($("tbody"));
   $("bFold").style.display=grouped&&!filtering?"":"none";
   $("bFold").textContent=letters.length&&letters.every(l=>expanded.has(l))?"Tout replier":"Tout déplier";
-  $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus`;
+  $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus · ${books.filter(b=>b.a_verifier).length} à vérifier`;
 }
 $("bFold").onclick=()=>{if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()};
 $("tbody").addEventListener("click",e=>{const g=e.target.closest("tr.grp");if(!g)return;const l=g.dataset.l;expanded.has(l)?expanded.delete(l):expanded.add(l);render()});
@@ -343,18 +345,21 @@ function view(i){
     <div><h3 style="margin:0 0 4px">${esc(b.titre)}</h3><div style="font-size:15px;margin-bottom:8px">${esc(b.auteur)}</div>
     ${f("Lu le",b.date_lecture)}${f("Pages",b.nb_pages)}${f("Localisation",b.localisation)}${f("ISBN",b.isbn)}${f("Acheté le",b.date_achat)}${f("Entré le",b.date_entree)}</div></div>
     ${b.resume?`<div style="margin-top:12px;white-space:pre-wrap;line-height:1.5">${esc(b.resume)}</div>`:'<p class="muted">Pas de résumé.</p>'}`;
+  if(b.a_verifier)$("vBody").insertAdjacentHTML("afterbegin",'<div style="background:#fff3d6;border:1px solid #e3c36b;border-radius:6px;padding:6px 10px;margin-bottom:10px"><span class="warn">⚠</span> Titre ou auteur non vérifié : à contrôler.</div>');
+  $("vOk").style.display=b.a_verifier?"":"none";
   const im=$("vBody").querySelector("img");if(im)loadCover(im);
   $("dlgV").showModal();
 }
 $("vClose").onclick=()=>$("dlgV").close();
+$("vOk").onclick=()=>{books[vIdx].a_verifier="";save();render();$("dlgV").close()};
 $("vEdit").onclick=()=>{$("dlgV").close();edit(vIdx)};
-["q","fNoIsbn","fNoRes","fUnread"].forEach(id=>$(id).addEventListener("input",render));
+["q","fNoIsbn","fNoRes","fUnread","fCheck"].forEach(id=>$(id).addEventListener("input",render));
 
 /* ---------- Édition ---------- */
 function edit(i){
   cur=i; const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
-  $("form").innerHTML=COLS.map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
+  $("form").innerHTML=COLS.map(([k,l])=>`<label>${l}</label>`+(k==="a_verifier"?`<input type="checkbox" id="f_${k}" ${b[k]?"checked":""} style="width:auto">`:k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
   $("form").insertAdjacentHTML("beforeend",'<label>Aperçu</label><div id="fPrev"></div>');
   const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=$("fPrev").querySelector("img");if(im)loadCover(im)};
   $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
@@ -364,7 +369,7 @@ function edit(i){
   $("bDel").style.display=i==null?"none":"";
   $("dlg").showModal();
 }
-const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,$("f_"+k).value.trim()]));
+const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,k==="a_verifier"?($("f_"+k).checked?"1":""):$("f_"+k).value.trim()]));
 $("bBnf").onclick=async()=>{
   const t=$("f_titre").value.trim(),a=$("f_auteur").value.trim();
   if(!t)return $("fMsg").textContent="Saisissez d'abord un titre.";
@@ -375,6 +380,7 @@ $("bBnf").onclick=async()=>{
   const out=[];
   if(pt){const n=TX.rebuildTitle(t,core,pt);if(n!==t){$("f_titre").value=n;out.push("titre")}}
   if(pa&&pa!==a){$("f_auteur").value=pa;out.push("auteur")}
+  if(pt&&(pa||!a))$("f_a_verifier").checked=false;
   $("fMsg").textContent=out.length?"Corrigé d'après la BnF : "+out.join(" et ")+".":(pt||pa?"Déjà conforme à la BnF.":"Aucune notice BnF correspondante : vérifiez à la main.");
 };
 $("bAdd").onclick=()=>edit(null);
@@ -446,7 +452,7 @@ $("cGo").onclick=async()=>{
 };
 $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
   const c=cands[+el.dataset.i],cur_=formVals();applyTo(cur_,c,$("cOver").checked);
-  for(const k in cur_) $("f_"+k).value=cur_[k];
+  for(const k in cur_) if(k!=="a_verifier") $("f_"+k).value=cur_[k];
   $("f_couverture").oninput();
   $("dlgC").close();
 };
