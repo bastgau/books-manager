@@ -34,6 +34,7 @@ textarea{min-height:110px}
 #prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
 .cv{height:56px;width:auto;display:block;border-radius:2px;box-shadow:0 1px 3px #0004}
+.cv:not([src]){width:38px;background:#eee}
 </style>
 </head>
 <body>
@@ -115,12 +116,24 @@ fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-we
 <div id="prog"></div>
 
 <script>
-const coverUrl=(b,s="M")=>b.couverture||(b.isbn?`https://covers.openlibrary.org/b/isbn/${b.isbn}-${s}.jpg?default=false`:"");
 const coverG=b=>b.isbn?`https://books.google.com/books/content?vid=ISBN${b.isbn}&printsec=frontcover&img=1&zoom=1`:"";
-const coverImg=(b,s,cls="cv")=>{const u=coverUrl(b,s);return u?`<img class="${cls}" loading="lazy" referrerpolicy="no-referrer" src="${esc(u)}" data-g="${esc(coverG(b))}" onerror="covErr(this)" onload="covOk(this)">`:""};
-/* repli Open Library -> Google Books ; l'image "non disponible" de Google fait 128x170 */
-function covErr(i){if(i.dataset.g&&!i.dataset.t){i.dataset.t=1;i.src=i.dataset.g}else i.style.display="none"}
-function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"}
+/* ordre : fichier du dépôt GitHub (chargé à part) > URL enregistrée > Open Library > Google Books */
+const coverQ=(b,s)=>[b.couverture,b.isbn&&`https://covers.openlibrary.org/b/isbn/${b.isbn}-${s}.jpg?default=false`,coverG(b)].filter(Boolean);
+const coverImg=(b,s,cls="cv")=>{const q=coverQ(b,s);return q.length?`<img class="${cls}" referrerpolicy="no-referrer" data-isbn="${esc(b.isbn||"")}" data-q="${esc(JSON.stringify(q))}" onerror="covErr(this)" onload="covOk(this)">`:""};
+function covErr(i){const q=JSON.parse(i.dataset.q||"[]"),n=q.shift();if(n){i.dataset.q=JSON.stringify(q);i.src=n}else i.style.display="none"}
+function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"} /* l'image "non disponible" de Google fait 128x170 */
+const coverCache=new Map();
+function repoCover(isbn){
+  const c=cfg();if(!isbn||!lib()||!c.repo||!c.token)return Promise.resolve(null);
+  const key=lib()+"/"+isbn;if(coverCache.has(key))return coverCache.get(key);
+  const p=(async()=>{try{
+    const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/libraries/${lib()}-covers/${isbn}.jpg?ref=${encodeURIComponent(c.branch)}`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}});
+    return r.ok?URL.createObjectURL(await r.blob()):null}catch(e){return null}})();
+  coverCache.set(key,p);return p;
+}
+async function loadCover(i){const u=await repoCover(i.dataset.isbn);if(u)i.src=u;else covErr(i)}
+const coverObs=typeof IntersectionObserver==="function"?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){coverObs.unobserve(e.target);loadCover(e.target)}}),{rootMargin:"200px"}):null;
+const hydrateCovers=root=>root.querySelectorAll("img[data-isbn]").forEach(i=>coverObs?coverObs.observe(i):loadCover(i));
 const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"],["couverture","Pochette (URL)"]];
 const KEY="livrotheque.v1", SK="livrotheque.sync.";
 const lib=()=>localStorage.getItem(SK+"lib")||"";
@@ -159,6 +172,7 @@ function render(){
   $("tbody").innerHTML=list.slice(0,1500).map(([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+COLS.filter(([k])=>k!=="couverture").map(([k])=>
     k==="resume"?`<td class="r">${esc(b.resume.slice(0,160))}${b.resume.length>160?"…":""}</td>`:
     k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:`<td>${esc(b[k])}</td>`).join("")+"</tr>").join("");
+  hydrateCovers($("tbody"));
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus`;
 }
 $("thead").onclick=e=>{const k=e.target.closest("th")?.dataset.k;if(!k)return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render()};
@@ -171,7 +185,7 @@ function edit(i){
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
   $("form").innerHTML=COLS.map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
   $("form").insertAdjacentHTML("beforeend",'<label>Aperçu</label><div id="fPrev"></div>');
-  const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv")};
+  const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=$("fPrev").querySelector("img");if(im)loadCover(im)};
   $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
   $("bDel").style.display=i==null?"none":"";
   $("dlg").showModal();
