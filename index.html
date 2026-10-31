@@ -39,7 +39,7 @@ dialog::backdrop{background:#0006}
 textarea{min-height:110px}
 .row{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap}
 .cand{display:flex;gap:10px;padding:8px;border:1px solid #ddd;border-radius:6px;margin:6px 0;cursor:pointer;background:#fff}
-.cand:hover{background:#fff6e0}.cand img{width:48px;height:70px;object-fit:cover;background:#eee}
+.cand:hover{background:#fff6e0}.cand img{width:48px;height:70px;object-fit:cover;flex:none}.cand>div{min-width:0;overflow-wrap:anywhere}
 .cand small{color:#666}
 #prog{position:fixed;bottom:0;left:0;right:0;background:#333;color:#fff;padding:8px 16px;display:none;z-index:9}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
@@ -532,7 +532,8 @@ $("cGo").onclick=async()=>{
   add(byI,"ISBN");add(byT,"auteur & titre");
   const gnote=gbState.status&&gbState.status!=="ok"?" Google Books : "+gbState.status+(gbState.status.startsWith("indisponible")?" — réessayez dans un instant.":"."):"";
   $("cInfo").textContent=(cands.length?cands.length+" résultat"+(cands.length>1?"s":"")+" par "+via.join(" et ")+(notes.length?" ("+notes.join(" ; ")+")":"")+".":"Aucun résultat : "+notes.join(" ; ")+".")+gnote;
-  $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}">`:"<img>"}<div><b>${esc(c.titre)}</b><br>${esc(c.auteur)} <small>· ${esc(c.editeur)} · ${c.nb_pages||"?"} p · ISBN ${esc(c.isbn)} · ${c.src} · trouvé par ${esc(c.via||"")}</small><br><small>${esc((c.resume||"").slice(0,160))}</small></div></div>`).join(""):"Aucun résultat (ou service injoignable).";
+  const meta=c=>[c.editeur,c.nb_pages?c.nb_pages+" p":"",c.isbn?"ISBN "+c.isbn:"",c.src,c.via?"trouvé par "+c.via:""].filter(Boolean).map(esc).join(" · ");
+  $("cList").innerHTML=cands.length?cands.map((c,i)=>`<div class="cand" data-i="${i}">${c.cover?`<img src="${esc(c.cover)}" referrerpolicy="no-referrer" onerror="this.remove()" onload="covOk(this)">`:""}<div><b>${esc(c.titre)}</b>${c.auteur?"<br>"+esc(c.auteur):""}<br><small>${meta(c)}</small>${c.resume?"<br><small>"+esc(c.resume.slice(0,160))+"</small>":""}</div></div>`).join(""):"Aucun résultat (ou service injoignable).";
 };
 $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
   const c=cands[+el.dataset.i],cur_=formVals();applyTo(cur_,c,$("cOver").checked);
@@ -561,7 +562,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T23:14:34Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T23:19:07Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
