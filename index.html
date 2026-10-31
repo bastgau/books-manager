@@ -251,9 +251,9 @@ function isbnValid(i) {
 }
 return {mostlyUpper,authorCase,titleCase,isbnValid};
 })();
-const coverG=b=>b.isbn?`https://books.google.com/books/content?vid=ISBN${b.isbn}&printsec=frontcover&img=1&zoom=1`:"";
 /* ordre : fichier du dépôt GitHub (chargé à part) > URL enregistrée > Open Library > Google Books */
-const coverQ=(b,s)=>[b.couverture,b.isbn&&`https://covers.openlibrary.org/b/isbn/${b.isbn}-${s}.jpg?default=false`,coverG(b)].filter(Boolean);
+/* pas de repli sur l'image Google par ISBN : sans pochette, Google renvoie une image grise générique, impossible à distinguer d'une vraie */
+const coverQ=(b,s)=>[b.couverture,b.isbn&&`https://covers.openlibrary.org/b/isbn/${b.isbn}-${s}.jpg?default=false`].filter(Boolean);
 const coverImg=(b,s,cls="cv")=>{const q=coverQ(b,s);return q.length?`<img class="${cls}" referrerpolicy="no-referrer" data-isbn="${esc(b.isbn||"")}" data-q="${esc(JSON.stringify(q))}" onerror="covErr(this)" onload="covOk(this)">`:""};
 function covErr(i){const q=JSON.parse(i.dataset.q||"[]"),n=q.shift();if(n){i.dataset.q=JSON.stringify(q);i.src=n}else i.style.display="none"}
 function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"} /* l'image "non disponible" de Google fait 128x170 */
@@ -474,8 +474,24 @@ async function olSearch(titre,auteur){
     return ((await jget("https://openlibrary.org/search.json?"+p)).docs||[]).map(d=>({src:"Open Library",titre:d.title,auteur:(d.author_name||[]).join(", "),
       nb_pages:d.number_of_pages_median||"",isbn:(d.isbn||[]).find(x=>x.length===13)||(d.isbn||[])[0]||"",resume:"",cover:d.cover_i?`https://covers.openlibrary.org/b/id/${d.cover_i}-S.jpg`:"",editeur:""}))}catch(e){return []}
 }
+/* ---------- Sudoc (catalogue des bibliothèques universitaires françaises) : par ISBN uniquement, sans clé ---------- */
+const sdText=s=>s.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;|&#39;/g,"'").replace(/[\u0080-\u009f]/g,"").replace(/\s+/g," ").trim();
+const sdField=(x,tag)=>[...x.matchAll(new RegExp('<datafield tag="'+tag+'"[^>]*>([^]*?)</datafield>',"g"))].map(m=>m[1]);
+const sdSub=(f,code)=>{const m=(f||"").match(new RegExp('<subfield code="'+code+'">([^<]*)</subfield>'));return m?sdText(m[1]):""};
+async function sudocIsbn(isbn){
+  try{
+    const ppn=((await (await fetch("https://www.sudoc.fr/services/isbn2ppn/"+isbn)).text()).match(/<ppn>(\d+X?)<\/ppn>/)||[])[1];
+    if(!ppn)return [];
+    const x=await (await fetch("https://www.sudoc.fr/"+ppn+".xml")).text();
+    const f200=sdField(x,"200")[0];
+    const auteurs=[...sdField(x,"700"),...sdField(x,"701"),...sdField(x,"702")].filter(f=>{const r=sdSub(f,"4");return !r||r==="070"}).slice(0,3).map(f=>(sdSub(f,"a").toUpperCase()+" "+sdSub(f,"b")).trim()).filter(Boolean);   // 070 = auteur ; on écarte traducteurs (730), préfaciers…
+    const pages=Math.max(0,...[...sdSub(sdField(x,"215")[0],"a").matchAll(/(\d+)\s*p\b/g)].map(m=>+m[1]));
+    return [{src:"Sudoc",titre:sdSub(f200,"a"),auteur:auteurs.join(", "),nb_pages:pages||"",isbn,
+      resume:sdSub(sdField(x,"330")[0],"a"),cover:"",editeur:sdSub(sdField(x,"210")[0],"c")}];
+  }catch(e){return []}
+}
 async function lookup(isbn,titre,auteur){
-  if(isbn){return [...await olIsbn(isbn),...await gbSearch("isbn:"+isbn)]}
+  if(isbn){const [ol,gb,sd]=await Promise.all([olIsbn(isbn),gbSearch("isbn:"+isbn),sudocIsbn(isbn)]);return [...ol,...gb,...sd]}
   const t=titre.replace(/^\([^)]*\)\s*/,""); // retire le préfixe de tome "(3) "
   let g=await gbSearch(`intitle:"${t}"`+(auteur?` inauthor:"${auteur}"`:""));
   if(!g.length&&gbState.status==="ok")g=await gbSearch((t+" "+(auteur||"")).trim());   // repli : texte libre
@@ -545,7 +561,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T22:46:17Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T22:58:44Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
