@@ -58,7 +58,7 @@ tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
 #ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
 #ov b{display:block;margin-bottom:6px}
 #fMsg{min-height:1.2em;font-size:13px;margin:8px 0 0}
-footer#ver{flex:none;padding:10px 16px;font-size:12px;color:#7a6a58;background:#ece5d6;border-top:1px solid #d8cfbd}
+footer#ver{flex:none;margin-top:15px;padding:10px 16px;font-size:12px;color:#e9dccf;background:#5b3a29}
 #bnfOpts{font-size:13px;margin:6px 0 0}#bnfOpts label{margin-right:12px;white-space:nowrap}
 /* ---------- mobile / tablette : une colonne de contenu, pas de largeur minimale ---------- */
 @media (max-width:900px){
@@ -605,7 +605,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T20:18:21Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T20:20:55Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
