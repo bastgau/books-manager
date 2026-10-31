@@ -46,6 +46,7 @@ fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-we
 .cvl{height:150px;width:auto;border-radius:3px;box-shadow:0 2px 8px #0005}
 .warn{color:#c77700;font-weight:700}
 .dup{color:#2a6fb5;font-weight:700}
+#fPrev .cv{height:120px;margin:0}   /* aperçu dans le formulaire : aligné à gauche des champs */
 .grid input[type=checkbox]{width:auto;justify-self:start;margin:2px 0}
 .cv{height:56px;width:auto;display:block;margin:0 auto;border-radius:2px;box-shadow:0 1px 3px #0004}
 .cv:not([src]){width:38px;background:#eee}
@@ -370,9 +371,13 @@ function edit(i){
   cur=i; const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
   $("form").innerHTML=COLS.filter(([k])=>k!=="a_verifier").map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
-  $("form").insertAdjacentHTML("beforeend",`<label>Aperçu</label><div id="fPrev"></div><label>À vérifier</label><input type="checkbox" id="f_a_verifier" ${b.a_verifier?"checked":""}>`);
+  $("form").insertAdjacentHTML("beforeend",`<div id="fPrev" style="display:none;grid-column:2"></div><label>À vérifier</label><input type="checkbox" id="f_a_verifier" ${b.a_verifier?"checked":""}>`);
   if(i==null&&!$("f_date_entree").value){const d=new Date(),p=n=>String(n).padStart(2,"0");$("f_date_entree").value=`${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`}   /* nouveau livre : entré aujourd'hui */
-  const prev=()=>{$("fPrev").innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=$("fPrev").querySelector("img");if(im)loadCover(im)};
+  /* la pochette n'occupe une ligne que si une image s'affiche réellement ; sans pochette, aucune ligne ni libellé */
+  const fp=$("fPrev");
+  const sync=()=>setTimeout(()=>{const im=fp.querySelector("img");fp.style.display=im&&im.style.display!=="none"&&im.complete&&im.naturalWidth>0?"":"none"},0);
+  if(fp.addEventListener){fp.addEventListener("load",sync,true);fp.addEventListener("error",sync,true)}
+  const prev=()=>{fp.style.display="none";fp.innerHTML=coverImg({couverture:$("f_couverture").value.trim(),isbn:cleanIsbn($("f_isbn").value)},"M","cv");const im=fp.querySelector("img");if(im)loadCover(im)};
   $("f_couverture").oninput=prev;$("f_isbn").oninput=prev;prev();
   $("fMsg").textContent="Règles : auteur au format NOM Prénom ; titre en minuscules, sauf la 1re lettre et les noms propres.";
   $("f_auteur").onblur=()=>{const v=$("f_auteur").value.trim();if(v&&(TX.mostlyUpper(v)||v===v.toLowerCase()))$("f_auteur").value=TX.authorCase(v)};
@@ -503,7 +508,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T20:52:47Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T20:57:16Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
