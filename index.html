@@ -554,7 +554,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T19:52:35Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-10-31T19:54:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -695,7 +695,7 @@ updateLabel();
 renderVer();
 appVersion();
 pull();
-if(!books.length)$("info").textContent="Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque";
+if(!books.length&&!lib())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
 </body>
 </html>
