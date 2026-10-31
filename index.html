@@ -35,6 +35,16 @@ textarea{min-height:110px}
 fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-weight:600;padding:0 6px}
 .cv{height:56px;width:auto;display:block;border-radius:2px;box-shadow:0 1px 3px #0004}
 .cv:not([src]){width:38px;background:#eee}
+table{table-layout:fixed}
+tbody tr[data-i]{height:64px}
+tbody td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px}
+th{overflow:hidden;text-overflow:ellipsis}
+tr.grp td{background:#d9c3a0;font-weight:600;cursor:pointer;height:34px;padding:4px 10px;color:#3b2616}
+tr.grp:hover td{background:#cfb48b}
+tr.grp small{font-weight:400;opacity:.7;margin-left:6px}
+.rs{cursor:pointer;font-size:18px;text-align:center}
+#ov{position:fixed;display:none;z-index:20;max-width:440px;max-height:50vh;overflow:auto;background:#fffdf6;border:1px solid #c9b78f;border-radius:8px;box-shadow:0 8px 30px #0005;padding:12px 14px;white-space:pre-wrap;font-size:13px;line-height:1.45}
+#ov b{display:block;margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -44,6 +54,7 @@ fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-we
   <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
   <label><input type="checkbox" id="fNoRes"> sans résumé</label>
   <label><input type="checkbox" id="fUnread"> non lus</label>
+  <button id="bFold" class="sec">Tout déplier</button>
   <button id="bAdd">+ Ajouter</button>
   <button id="bImport" class="sec">Importer CSV</button>
   <button id="bExport" class="sec">Exporter CSV</button>
@@ -54,6 +65,7 @@ fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-we
   <span id="info"></span>
   <input type="file" id="file" accept=".csv,.txt,.tsv" hidden>
 </header>
+<div id="ov"></div>
 <main>
 <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
 </main>
@@ -161,20 +173,59 @@ function toCsv(){
 }
 
 /* ---------- Affichage ---------- */
+const WIDTHS={auteur:"14%",titre:"24%",date_lecture:"92px",nb_pages:"64px",localisation:"12%",resume:"72px",isbn:"124px",date_achat:"96px",date_entree:"96px"};
+const norm=s=>String(s||"").replace(/^\s*\([^)]*\)\s*/,"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c)?c:"#"};
+const expanded=new Set();
+let letters=[];
 function render(){
-  $("thead").innerHTML="<th></th>"+COLS.filter(([k])=>k!=="couverture").map(([k,l])=>`<th data-k="${k}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
+  const cols=COLS.filter(([k])=>k!=="couverture");
+  $("thead").innerHTML='<th style="width:56px"></th>'+cols.map(([k,l])=>`<th data-k="${k}" style="width:${WIDTHS[k]||"auto"}">${l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
+  const filtering=!!q||$("fNoIsbn").checked||$("fNoRes").checked||$("fUnread").checked;
   let list=books.map((b,i)=>[b,i]).filter(([b])=>
     (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
     (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture));
-  const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):String(b[sortKey]).toLowerCase();
-  list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir});
-  $("tbody").innerHTML=list.slice(0,1500).map(([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+COLS.filter(([k])=>k!=="couverture").map(([k])=>
-    k==="resume"?`<td class="r">${esc(b.resume.slice(0,160))}${b.resume.length>160?"…":""}</td>`:
-    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:`<td>${esc(b[k])}</td>`).join("")+"</tr>").join("");
+  const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):/^(auteur|titre)$/.test(sortKey)?norm(b[sortKey]).toLowerCase():String(b[sortKey]).toLowerCase();
+  list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir||String(a[0].titre).localeCompare(String(b[0].titre))});
+  const grouped=/^(auteur|titre)$/.test(sortKey);
+  const counts={};if(grouped)list.forEach(([b])=>{const l=letterOf(b[sortKey]);counts[l]=(counts[l]||0)+1});
+  letters=Object.keys(counts);
+  const row=([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+cols.map(([k])=>
+    k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
+    k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
+  let out="",cur="";
+  for(const it of list){
+    if(grouped){
+      const l=letterOf(it[0][sortKey]);
+      if(l!==cur){cur=l;out+=`<tr class="grp" data-l="${l}"><td colspan="${cols.length+1}">${filtering||expanded.has(l)?"▾":"▸"} ${l}<small>${counts[l]} livre${counts[l]>1?"s":""}</small></td></tr>`}
+      if(!(filtering||expanded.has(l)))continue;
+    }
+    out+=row(it);
+  }
+  $("tbody").innerHTML=out;
   hydrateCovers($("tbody"));
+  $("bFold").style.display=grouped&&!filtering?"":"none";
+  $("bFold").textContent=letters.length&&letters.every(l=>expanded.has(l))?"Tout replier":"Tout déplier";
   $("info").textContent=`${list.length} / ${books.length} livres · ${books.filter(b=>b.date_lecture).length} lus`;
 }
+$("bFold").onclick=()=>{if(letters.every(l=>expanded.has(l)))expanded.clear();else letters.forEach(l=>expanded.add(l));render()};
+$("tbody").addEventListener("click",e=>{const g=e.target.closest("tr.grp");if(!g)return;const l=g.dataset.l;expanded.has(l)?expanded.delete(l):expanded.add(l);render()});
+/* aperçu du résumé : au survol, et épinglé au clic */
+let ovPinned=null;
+function showOv(td){
+  const b=books[td.closest("tr").dataset.i];if(!b||!b.resume)return;
+  const ov=$("ov");ov.innerHTML="<b>"+esc(b.titre)+"</b>"+esc(b.resume);ov.style.display="block";
+  const r=td.getBoundingClientRect(),w=ov.offsetWidth,hh=ov.offsetHeight;
+  ov.style.left=Math.max(8,Math.min(r.left-w-8>8?r.left-w-8:r.right+8,innerWidth-w-8))+"px";
+  ov.style.top=Math.max(8,Math.min(r.top-10,innerHeight-hh-8))+"px";
+}
+const hideOv=()=>{$("ov").style.display="none";ovPinned=null};
+$("tbody").addEventListener("mouseover",e=>{const t=e.target.closest(".rs");if(t&&!ovPinned)showOv(t)});
+$("tbody").addEventListener("mouseout",e=>{if(e.target.closest(".rs")&&!ovPinned)$("ov").style.display="none"});
+$("tbody").addEventListener("click",e=>{const t=e.target.closest(".rs");if(!t)return;e.stopPropagation();if(ovPinned===t){hideOv()}else{ovPinned=t;showOv(t)}});
+document.addEventListener("click",e=>{if(ovPinned&&!e.target.closest("#ov"))hideOv()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")hideOv()});
 $("thead").onclick=e=>{const k=e.target.closest("th")?.dataset.k;if(!k)return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render()};
 $("tbody").ondblclick=e=>{const i=e.target.closest("tr")?.dataset.i;if(i!=null)edit(+i)};
 ["q","fNoIsbn","fNoRes","fUnread"].forEach(id=>$(id).addEventListener("input",render));
