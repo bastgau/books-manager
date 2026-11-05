@@ -48,6 +48,10 @@ fieldset{border:1px solid #d8cfbd;border-radius:6px;margin:10px 0}legend{font-we
 .dup{color:#2a6fb5;font-weight:700}
 #fPrev .cv{height:120px;margin:0}   /* aperçu dans le formulaire : aligné à gauche des champs */
 .grid input[type=checkbox]{width:auto;justify-self:start;margin:2px 0}
+.grid select{width:100%;padding:6px;border:1px solid #bbb;border-radius:4px;font:inherit;background:#fff}
+.locrow{display:flex;gap:6px}.locrow select{flex:1;min-width:0}.locrow button{padding:4px 12px}
+.loc{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #eee;font-size:13px}.loc span{flex:1}.loc button{padding:2px 8px;font-size:12px}
+.keep-oui{color:#2e7d32;font-weight:600}.keep-non{color:#c62828;font-weight:600}
 .cv{height:56px;width:auto;display:block;margin:0 auto;border-radius:2px;box-shadow:0 1px 3px #0004}
 .cv:not([src]){width:38px;background:#eee}
 table{table-layout:fixed;min-width:1290px}
@@ -174,6 +178,9 @@ dialog h4{margin:14px 0 4px}
       <label>Propriétaire</label><input id="sOwner">
     </div>
     <div class="row"><button id="sCopy" class="sec">Copier l'UUID</button><button id="sMeta" class="sec">Enregistrer les infos</button></div>
+    <div style="margin-top:12px"><b>Localisations</b> <small class="muted">(liste propre à cette bibliothèque)</small></div>
+    <div id="locList"></div>
+    <div class="row" style="justify-content:flex-start;margin-top:6px"><input id="locNew" placeholder="Nouvelle localisation" maxlength="40" style="flex:1;min-width:0;padding:6px;border:1px solid #bbb;border-radius:4px"><button id="locAdd" class="sec">Ajouter</button></div>
   </fieldset>
   <fieldset><legend>Partager la configuration (lien valable 24 h)</legend>
     <div class="grid">
@@ -269,7 +276,7 @@ function repoCover(isbn){
 async function loadCover(i){const u=await repoCover(i.dataset.isbn);if(u)i.src=u;else covErr(i)}
 const coverObs=typeof IntersectionObserver==="function"?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){coverObs.unobserve(e.target);loadCover(e.target)}}),{rootMargin:"200px"}):null;
 const hydrateCovers=root=>root.querySelectorAll("img[data-isbn]").forEach(i=>coverObs?coverObs.observe(i):loadCover(i));
-const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_achat","Acheté le"],["date_entree","Entré le"],["couverture","Pochette (URL)"],["a_verifier","À vérifier"]];
+const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_entree","Entré le"],["couverture","Pochette (URL)"],["a_verifier","À vérifier"],["a_garder","À garder"]];
 const KEY="livrotheque.v1", SK="livrotheque.sync.";
 const lib=()=>localStorage.getItem(SK+"lib")||"";
 const ck=()=>KEY+"."+(lib()||"local");
@@ -288,7 +295,7 @@ function parseCsv(buf){
   if(lines.length&&lines[0].charCodeAt(0)===0xFEFF) lines[0]=lines[0].slice(1);
   const head=lines.shift().split("\t").map(h=>h.replace(/^"|"$/g,"").trim());
   return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>x.replace(/^"|"$/g,""));const o={};
-    COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});o.isbn=cleanIsbn(o.isbn);return o});
+    COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});o.isbn=cleanIsbn(o.isbn);o.a_garder=/^(oui|non)$/i.test(o.a_garder)?o.a_garder.toLowerCase():"";return o});
 }
 function toCsv(){
   const f=v=>'"'+String(v??"").replace(/[\t\r\n]+/g," ")+'"';
@@ -296,7 +303,7 @@ function toCsv(){
 }
 
 /* ---------- Affichage ---------- */
-const WIDTHS={auteur:"190px",titre:"310px",date_lecture:"100px",nb_pages:"70px",localisation:"150px",resume:"72px",isbn:"132px",date_achat:"100px",date_entree:"100px"};
+const WIDTHS={auteur:"190px",titre:"310px",date_lecture:"100px",nb_pages:"70px",localisation:"150px",resume:"72px",isbn:"132px",date_entree:"100px",a_garder:"96px"};
 const norm=s=>String(s||"").replace(/^\s*\([^)]*\)\s*/,"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
 const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c)?c:"#"};
 const expanded=new Set();
@@ -304,7 +311,8 @@ let letters=[];
 function render(){
   /* mobile : seulement pochette, auteur, titre et résumé ; le reste est dans la fiche (clic sur la ligne) */
   const mobile=!!(window.matchMedia&&matchMedia("(max-width:900px)").matches);
-  const cols=COLS.filter(([k])=>k!=="couverture"&&k!=="a_verifier"&&(!mobile||k==="auteur"||k==="titre"||k==="resume"));
+  const SHOW=["auteur","titre","date_lecture","nb_pages","localisation","a_garder","resume","isbn","date_entree"];   // ordre d'affichage ; le fichier CSV suit COLS
+  const cols=SHOW.map(k=>COLS.find(c=>c[0]===k)).filter(c=>c&&(!mobile||c[0]==="auteur"||c[0]==="titre"||c[0]==="resume"));
   const W=mobile?{auteur:"34%",titre:"auto",resume:"46px"}:WIDTHS;
   $("thead").innerHTML=`<th style="width:${mobile?52:56}px"></th>`+cols.map(([k,l])=>`<th data-k="${k}" style="width:${W[k]||"auto"}">${mobile&&k==="resume"?"📝":l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
   const q=$("q").value.toLowerCase().trim();
@@ -319,6 +327,7 @@ function render(){
   const counts={};if(grouped)list.forEach(([b])=>{const l=letterOf(b[sortKey]);counts[l]=(counts[l]||0)+1});
   letters=Object.keys(counts);
   const row=([b,i])=>`<tr data-i="${i}"><td>${coverImg(b,"S")}</td>`+cols.map(([k])=>
+    k==="a_garder"?(b.a_garder==="oui"?'<td class="keep-oui">✔ Oui</td>':b.a_garder==="non"?'<td class="keep-non">✘ Non</td>':'<td class="muted">—</td>'):
     k==="resume"?(b.resume?`<td class="rs" title="Résumé : survolez ou cliquez">📝</td>`:'<td class="muted" style="text-align:center">–</td>'):
     k==="date_lecture"&&b[k]?`<td><span class="tag">${esc(b[k])}</span></td>`:k==="titre"&&(b.a_verifier||dupSet.has(i))?`<td title="${b.a_verifier?"À vérifier. ":""}${dupSet.has(i)?"Doublon possible. ":""}${esc(b[k])}">${b.a_verifier?'<span class="warn">⚠</span> ':""}${dupSet.has(i)?'<span class="dup">⧉</span> ':""}${esc(b[k])}</td>`:`<td title="${esc(b[k])}">${esc(b[k])}</td>`).join("")+"</tr>";
   $("foldbar").className=letters.length?"":"off";$("foldbar").title=letters.length?"":"Disponible avec le tri par auteur ou par titre";
@@ -362,7 +371,7 @@ function view(i){
   $("vBody").innerHTML=`<div style="display:flex;gap:16px;align-items:flex-start">
     <div style="min-width:96px">${coverImg(b,"M","cvl")}</div>
     <div><h3 style="margin:0 0 4px">${esc(b.titre)}</h3><div style="font-size:15px;margin-bottom:8px">${esc(b.auteur)}</div>
-    ${f("Lu le",b.date_lecture)}${f("Pages",b.nb_pages)}${f("Localisation",b.localisation)}${f("ISBN",b.isbn)}${f("Acheté le",b.date_achat)}${f("Entré le",b.date_entree)}</div></div>
+    ${f("Lu le",b.date_lecture)}${f("Pages",b.nb_pages)}${f("Localisation",b.localisation)}${f("ISBN",b.isbn)}${f("Entré le",b.date_entree)}${f("À garder",b.a_garder==="oui"?"Oui":b.a_garder==="non"?"Non":"")}</div></div>
     ${b.resume?`<div style="margin-top:12px;white-space:pre-wrap;line-height:1.5">${esc(b.resume)}</div>`:'<p class="muted">Pas de résumé.</p>'}`;
   if(b.a_verifier)$("vBody").insertAdjacentHTML("afterbegin",'<div style="background:#fff3d6;border:1px solid #e3c36b;border-radius:6px;padding:6px 10px;margin-bottom:10px"><span class="warn">⚠</span> Titre ou auteur non vérifié : à contrôler.</div>');
   $("vOk").style.display=b.a_verifier?"":"none";
@@ -379,7 +388,7 @@ $("q").addEventListener("input",render);
 function edit(i){
   cur=i; const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
-  $("form").innerHTML=COLS.filter(([k])=>k!=="a_verifier").map(([k,l])=>`<label>${l}</label>`+(k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
+  $("form").innerHTML=COLS.filter(([k])=>k!=="a_verifier").map(([k,l])=>`<label>${l}</label>`+(k==="localisation"?`<div class="locrow"><select id="f_localisation">${locOptions(b.localisation)}</select><button type="button" id="locAddForm" class="sec" title="Créer une nouvelle localisation pour cette bibliothèque">+</button></div>`:k==="a_garder"?`<select id="f_a_garder"><option value="">—</option><option value="oui"${b.a_garder==="oui"?" selected":""}>Oui</option><option value="non"${b.a_garder==="non"?" selected":""}>Non</option></select>`:k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
   $("form").insertAdjacentHTML("beforeend",`<div id="fPrev" style="display:none;grid-column:2"></div><label>À vérifier</label><input type="checkbox" id="f_a_verifier" ${b.a_verifier?"checked":""}>`);
   if(i==null&&!$("f_date_entree").value){const d=new Date(),p=n=>String(n).padStart(2,"0");$("f_date_entree").value=`${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`}   /* nouveau livre : entré aujourd'hui */
   /* la pochette n'occupe une ligne que si une image s'affiche réellement ; sans pochette, aucune ligne ni libellé */
@@ -391,6 +400,7 @@ function edit(i){
   $("fMsg").textContent="Règles : auteur au format NOM Prénom ; titre en minuscules, sauf la 1re lettre et les noms propres.";
   $("f_auteur").onblur=()=>{const v=$("f_auteur").value.trim();if(v&&(TX.mostlyUpper(v)||v===v.toLowerCase()))$("f_auteur").value=TX.authorCase(v)};
   $("f_titre").onblur=()=>{$("f_titre").value=TX.titleCase($("f_titre").value)};
+  $("locAddForm").onclick=async()=>{const n=prompt("Nouvelle localisation (liste de cette bibliothèque) :");if(n===null)return;const r=await addLocation(n);if(!r.ok)return $("fMsg").textContent=r.msg;$("f_localisation").innerHTML=locOptions(r.name);$("fMsg").textContent="Localisation « "+r.name+" » créée."};
   $("bDel").style.display=i==null?"none":"";
   $("dlg").showModal();
 }
@@ -562,7 +572,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-10-31T23:19:07Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-05T18:49:58Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false;
@@ -580,10 +590,15 @@ async function appVersion(){
   renderVer();
 }
 /* ---------- Dernières modifications de la bibliothèque : 10 derniers commits du fichier, avec le détail livre par livre ---------- */
-const COLK=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier"];
-const FLAB={auteur:"auteur",titre:"titre",date_lecture:"lu le",nb_pages:"pages",localisation:"localisation",resume:"résumé",isbn:"ISBN",date_achat:"acheté le",date_entree:"entré le",couverture:"pochette",a_verifier:"à vérifier"};
+const COLK=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier","a_garder"];
+const OLD_ORDER=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier"];   // avant le retrait de « acheté le »
+const NEW_ORDER=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_entree","couverture","a_verifier","a_garder"];
+const FLAB={auteur:"auteur",titre:"titre",date_lecture:"lu le",nb_pages:"pages",localisation:"localisation",resume:"résumé",isbn:"ISBN",date_achat:"acheté le",date_entree:"entré le",couverture:"pochette",a_verifier:"à vérifier",a_garder:"à garder"};
 const isHeaderLine=l=>/^﻿?"auteur"\t/.test(l);
-const parseRow=l=>{const c=l.replace(/\r$/,"").replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"")),o={};COLK.forEach((k,i)=>o[k]=c[i]||"");return o};
+const hdrNames=l=>l.replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"").trim());
+const isDateTxt=s=>/^\d\d\/\d\d\/\d{4}$/.test(s||"");
+/* colonnes lues par en-tête quand il est connu ; sinon : ancien format si la 9e valeur est une date (date d'entrée), nouveau format sinon (URL de pochette ou vide) */
+const parseRow=(l,names)=>{const c=l.replace(/\r$/,"").replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"")),o={};COLK.forEach(k=>o[k]="");(names||(isDateTxt(c[8])?OLD_ORDER:NEW_ORDER)).forEach((k,i)=>{if(k in o)o[k]=c[i]||""});return o};
 const shortTxt=(s,n=38)=>s.length>n?s.slice(0,n-1)+"…":s;
 const rowLabel=b=>(b.auteur||"?")+" — "+(b.titre||"?");
 /* groupes de lignes supprimées / ajoutées -> liste de changements lisibles */
@@ -593,7 +608,8 @@ function describeGroups(groups){
   for(const g of groups){
     const rem=g.rem.filter(l=>l.trim()),add=g.add.filter(l=>l.trim());
     if(rem.some(isHeaderLine)||add.some(isHeaderLine))header=true;
-    const R=rem.filter(l=>!isHeaderLine(l)).map(parseRow),A=add.filter(l=>!isHeaderLine(l)).map(parseRow);
+    const hr=rem.find(isHeaderLine),ha=add.find(isHeaderLine),nR=hr?hdrNames(hr):null,nA=ha?hdrNames(ha):null;
+    const R=rem.filter(l=>!isHeaderLine(l)).map(l=>parseRow(l,nR)),A=add.filter(l=>!isHeaderLine(l)).map(l=>parseRow(l,nA));
     const pairs=[],delR=[];let addA=[...A];
     if(R.length===A.length){
       addA=[];
@@ -754,14 +770,47 @@ const sMsg=(t,bad)=>{$("sMsg").textContent=t;$("sMsg").style.color=bad?"#c33":"#
 const metaKey=id=>SK+id+".meta";
 const getMeta=()=>{try{return JSON.parse(localStorage.getItem(metaKey(lib())))||{}}catch(e){return {}}};
 const fillMeta=m=>{$("sName").value=m?.name||"";$("sDesc").value=m?.description||"";$("sOwner").value=m?.owner||""};
-const metaJson=(p="s")=>JSON.stringify({name:$(p+"Name").value.trim(),description:$(p+"Desc").value.trim(),owner:$(p+"Owner").value.trim()},null,2)+"\n";
+const metaJson=(p="s")=>JSON.stringify({name:$(p+"Name").value.trim(),description:$(p+"Desc").value.trim(),owner:$(p+"Owner").value.trim(),locations:[]},null,2)+"\n";   // nouvelle bibliothèque : liste de localisations vide
+const getLocs=()=>{const l=getMeta().locations;return Array.isArray(l)?l:[]};
 /* nom, description et propriétaire de la bibliothèque ouverte : relus une fois par session (nouvel appareil, lien de configuration, renommage ailleurs) */
 let metaFor="";
 async function refreshMeta(){
   if(!lib()||!cfg().repo||!cfg().token||metaFor===lib())return;
   metaFor=lib();
   const m=await loadMeta(lib());
-  if(m)updateLabel();else metaFor="";   // échec réseau : on réessaiera à la prochaine synchro
+  if(m){updateLabel();renderLocs()}else metaFor="";   // échec réseau : on réessaiera à la prochaine synchro
+}
+/* ---------- Localisations : liste propre à chaque bibliothèque, enregistrée dans son fichier d'informations ---------- */
+async function saveMeta(mutate){
+  if(!lib()||!cfg().repo||!cfg().token)throw new Error("aucune bibliothèque synchronisée");
+  let sha,cur=getMeta();
+  try{const f=await gh("GET",null,lib(),"meta");sha=f.sha;cur=JSON.parse(new TextDecoder().decode(b64dec(f.content)))}catch(e){if(e.status!==404)throw e}
+  const next=mutate(JSON.parse(JSON.stringify(cur)));
+  await gh("PUT",{message:"chore: update library metadata "+lib(),content:b64enc(JSON.stringify(next,null,2)+"\n"),branch:cfg().branch,sha},lib(),"meta");
+  localStorage.setItem(metaKey(lib()),JSON.stringify(next));return next;
+}
+const locOptions=cur=>{const L=getLocs();return '<option value="">— aucune —</option>'+L.map(n=>`<option value="${esc(n)}"${n===cur?" selected":""}>${esc(n)}</option>`).join("")+(cur&&!L.includes(cur)?`<option value="${esc(cur)}" selected>${esc(cur)} (hors liste)</option>`:"")};
+async function addLocation(raw){
+  const name=String(raw||"").replace(/\s+/g," ").trim();
+  if(!name)return {ok:false,msg:"Saisissez un nom de localisation."};
+  if(name.length>40)return {ok:false,msg:"40 caractères maximum."};
+  if(getLocs().some(n=>nk(n)===nk(name)))return {ok:false,msg:"Cette localisation existe déjà."};
+  try{await saveMeta(m=>{const l=Array.isArray(m.locations)?m.locations:[];if(!l.some(n=>nk(n)===nk(name)))l.push(name);l.sort((a,b)=>a.localeCompare(b,"fr"));return {...m,locations:l}})}
+  catch(e){return {ok:false,msg:"Enregistrement impossible ("+e.message+")."}}
+  renderLocs();return {ok:true,name};
+}
+async function removeLocation(name){
+  const used=books.filter(b=>b.localisation===name).length;
+  const q=used?"« "+name+" » est utilisée par "+used+" livre"+(used>1?"s":"")+".\nSi vous la supprimez, "+(used>1?"ces "+used+" livres perdront leur":"ce livre perdra sa")+" localisation.\n\nSupprimer quand même ?":"Supprimer la localisation « "+name+" » ?";
+  if(!confirm(q))return {ok:false,msg:""};
+  try{await saveMeta(m=>({...m,locations:(Array.isArray(m.locations)?m.locations:[]).filter(n=>n!==name)}))}   // métadonnées d'abord : en cas d'échec, aucun livre n'est modifié
+  catch(e){return {ok:false,msg:"Suppression impossible ("+e.message+") : rien n'a été modifié."}}
+  if(used){books.forEach(b=>{if(b.localisation===name)b.localisation=""});save();render()}
+  renderLocs();return {ok:true,used};
+}
+function renderLocs(){
+  const el=$("locList");if(!el)return;const L=getLocs();
+  el.innerHTML=L.length?L.map(n=>{const c=books.filter(b=>b.localisation===n).length;return `<div class="loc"><span>${esc(n)}</span><small class="muted">${c} livre${c>1?"s":""}</small><button type="button" class="sec" data-loc="${esc(n)}">Supprimer</button></div>`}).join(""):'<small class="muted">Aucune localisation. Ajoutez-en ci-dessous.</small>';
 }
 async function loadMeta(id){
   try{const f=await gh("GET",null,id,"meta");const m=JSON.parse(new TextDecoder().decode(b64dec(f.content)));localStorage.setItem(metaKey(id),JSON.stringify(m));return m}
@@ -778,7 +827,7 @@ function useLib(id){
   localStorage.setItem(SK+"lib",id);
   books=JSON.parse(localStorage.getItem(ck())||"[]");render();updateLabel();
 }
-const refreshCur=()=>{$("curBox").style.display=lib()?"":"none";$("sCur").textContent=lib()};
+const refreshCur=()=>{$("curBox").style.display=lib()?"":"none";$("sCur").textContent=lib();renderLocs()};
 $("sync").onclick=()=>{if(/erreur d'envoi|envoi impossible/.test($("sync").textContent)&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}};
 window.addEventListener("online",()=>{if(cfg().repo&&cfg().token&&lib()&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}});
 $("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value="";["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(lib()?getMeta():null);refreshCur();sMsg("");$("dlgS").showModal()};
@@ -811,12 +860,12 @@ $("sMeta").onclick=async()=>{
   if(!saveAccess())return;
   if(!$("sName").value.trim())return sMsg("Le nom est obligatoire.",1);
   sMsg("Enregistrement…");
-  try{
-    let sha;try{sha=(await gh("GET",null,lib(),"meta")).sha}catch(e){if(e.status!==404)throw e}
-    await gh("PUT",{message:"chore: update library metadata "+lib(),content:b64enc(metaJson()),branch:cfg().branch,sha},lib(),"meta");
-    localStorage.setItem(metaKey(lib()),metaJson());updateLabel();sMsg("Infos enregistrées.");
-  }catch(e){sMsg("Erreur GitHub ("+e.message+")",1)}
+  try{await saveMeta(m=>({...m,name:$("sName").value.trim(),description:$("sDesc").value.trim(),owner:$("sOwner").value.trim()}));updateLabel();sMsg("Infos enregistrées.")}   // fusionne : la liste de localisations est conservée
+  catch(e){sMsg("Erreur GitHub ("+e.message+")",1)}
 };
+$("locAdd").onclick=async()=>{const r=await addLocation($("locNew").value);if(r.ok){$("locNew").value="";sMsg("Localisation « "+r.name+" » ajoutée.")}else sMsg(r.msg,1)};
+$("locNew").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("locAdd").click()}});
+$("locList").addEventListener("click",async e=>{const b=e.target.closest("button[data-loc]");if(!b)return;const r=await removeLocation(b.dataset.loc);if(r.ok)sMsg("Localisation supprimée"+(r.used?" ("+r.used+" livre"+(r.used>1?"s":"")+" mis à jour).":"."));else if(r.msg)sMsg(r.msg,1)});
 window.addEventListener("beforeunload",e=>{if(localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
 
