@@ -89,6 +89,7 @@ dialog h4{margin:14px 0 4px}
   header{padding:8px 10px;gap:6px 8px;position:static}   /* barre non collante : elle prendrait ~1/4 de l'écran */
   th{top:0 !important}
   header h1{font-size:16px;margin:0 8px 0 0}
+  .sfbrk{display:none}                                 /* mobile : .sf occupe déjà toute la ligne */
   .sf{flex:1 1 100%;flex-wrap:wrap;gap:4px 12px}
   .sf input[type=search]{flex:1 1 100%;min-width:0}
   input,textarea,select{font-size:16px}               /* évite le zoom automatique de iOS dans les champs */
@@ -110,6 +111,7 @@ dialog h4{margin:14px 0 4px}
 <header>
   <h1>📚 Ma Livrothèque</h1>
   <label class="offsw" id="offLab"><input type="checkbox" id="offSw"><i></i><span id="offTxt">En ligne</span></label>
+  <div class="brk sfbrk"></div>   <!-- recherche et filtres : ligne à part, sous le titre -->
   <div class="sf">
     <input type="search" id="q" placeholder="Rechercher (auteur, titre, résumé, ISBN…)">
     <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
@@ -620,7 +622,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T14:53:23Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T15:02:56Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
