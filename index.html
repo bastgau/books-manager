@@ -455,7 +455,9 @@ function view(i){
 $("vClose").onclick=()=>$("dlgV").close();
 $("vOk").onclick=()=>{const i=locate(vRef);$("dlgV").close();if(i<0){render();return alert(GONE)}books[i].a_verifier="";save();render()};
 $("vEdit").onclick=()=>{const i=locate(vRef);$("dlgV").close();if(i<0){render();return alert(GONE)}edit(i)};
-$("q").addEventListener("input",render);
+/* search: the table is rebuilt 150 ms after the last key press, not at every letter (rebuilding 1 000 rows takes ~200 ms) */
+let qTimer=null;
+$("q").addEventListener("input",()=>{clearTimeout(qTimer);qTimer=setTimeout(render,150)});
 ["fNoIsbn","fNoRes","fUnread","fCheck","fDup"].forEach(id=>$(id).addEventListener("input",render)); /* un filtre ne change pas l'état plié/déplié des lettres */
 
 /* ---------- Édition ---------- */
@@ -659,7 +661,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:28:15Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:42:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
