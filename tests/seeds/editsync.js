@@ -10,13 +10,13 @@ function unb64(s){return decodeURIComponent(escape(atob(s)))}
 localStorage.setItem("livrotheque.v1."+LIBID,JSON.stringify(rows));
 var S="livrotheque.sync.";localStorage.setItem(S+"repo","demo/depot");localStorage.setItem(S+"token","FAUX");localStorage.setItem(S+"lib",LIBID);localStorage.setItem(S+LIBID+".sha","s0");localStorage.setItem(S+LIBID+".dirty","0");localStorage.setItem(S+LIBID+".count","6");
 localStorage.setItem(S+LIBID+".meta",JSON.stringify({name:"Bibliothèque test",description:"",owner:"",locations:[]}));
-var net=window.__net={text:csv(rows),sha:"s0",n:0,puts:[]};
+var net=window.__net={text:csv(rows),sha:"s0",n:0,puts:[],putDelay:0};   // putDelay (ms): slow upload, like a mobile network
 // another device rewrites the file: f receives a copy of the current remote books
 window.__remoteEdit=function(f){var l=parseCsv(new TextEncoder().encode(net.text).buffer);f(l);net.text=csv(l);net.sha="r"+(++net.n)};
 function J(b,s){return Promise.resolve(new Response(JSON.stringify(b),{status:s||200,headers:{"Content-Type":"application/json"}}))}
 window.fetch=function(u,o){u=decodeURIComponent(String(u));var m=(o&&o.method)||"GET";
  if(/contents\/.*-database\.csv/.test(u)){
-  if(m==="PUT"){var b=JSON.parse(o.body);net.text=unb64(b.content);net.sha="p"+(++net.n);net.puts.push(net.text);return J({content:{sha:net.sha}})}
+  if(m==="PUT"){var b=JSON.parse(o.body);net.puts.push(unb64(b.content));return new Promise(function(r){setTimeout(function(){net.text=unb64(b.content);net.sha="p"+(++net.n);r(J({content:{sha:net.sha}}))},net.putDelay)})}
   return J({sha:net.sha,content:b64(net.text)});
  }
  if(/commits\?path=index\.html/.test(u))return J([]);

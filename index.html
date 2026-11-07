@@ -337,7 +337,8 @@ const isOff=()=>localStorage.getItem(OFFK)==="1";
 const ck=()=>KEY+"."+(lib()||"local");
 let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, curRef=null;
 const $=id=>document.getElementById(id);
-const save=()=>{try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
+let editSeq=0;   // counts local changes: an upload only marks as sent the changes made before it started
+const save=()=>{editSeq++;try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
 const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
@@ -647,7 +648,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T19:37:17Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T19:38:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -925,8 +926,11 @@ async function push(){
      setStatus("☁ envoi annulé : "+books.length+" livre(s) au lieu de "+n+" — rien n'a été modifié dans le dépôt","#f99");return}}
   syncing=true;setStatus("☁ envoi…");
   try{
-    const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
-    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));localStorage.setItem(SK+lib()+".pend","0");localStorage.removeItem(etagKey());retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
+    const seq=editSeq,n=books.length;                   // state actually sent by this upload
+    const r=await gh("PUT",{message:`chore: update library (${n} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".count",String(n));localStorage.removeItem(etagKey());retryN=0;clearTimeout(retryTimer);
+    /* changes made during the upload are not in the file: they stay "to send" (page-close warning kept) and go in the next upload */
+    if(editSeq===seq){localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".pend","0");setStatus("☁ synchronisé")}else scheduleSync();
   }catch(e){
     if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
       if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
