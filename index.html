@@ -339,7 +339,7 @@ let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDi
 const $=id=>document.getElementById(id);
 let editSeq=0;   // counts local changes: an upload only marks as sent the changes made before it started
 const save=()=>{editSeq++;try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
-const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));   // ' too: safe in single-quoted attributes
 const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
 const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
 
