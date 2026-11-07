@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <title>Ma Livrothèque</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#5b3a29">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 *{box-sizing:border-box}
 body{font:14px system-ui,sans-serif;margin:0;color:#222;background:#f4f1ea;min-width:1322px;min-height:100%;display:flex;flex-direction:column}
@@ -14,6 +18,15 @@ header input[type=search]{padding:6px 10px;border:0;border-radius:4px;min-width:
 button{padding:6px 12px;border:0;border-radius:4px;background:#d9b382;color:#2b1a10;cursor:pointer;font:inherit}
 button:hover{background:#e8c796}button.sec{background:#eee}button.danger{background:#e57373;color:#fff}
 header label{font-size:13px;white-space:nowrap}
+.offsw{display:inline-flex;align-items:center;gap:7px;padding:3px 10px 3px 6px;border-radius:14px;background:#00000033;cursor:pointer;font-weight:600;user-select:none}
+.offsw input{position:absolute;opacity:0;width:0;height:0}
+.offsw i{position:relative;width:34px;height:18px;border-radius:9px;background:#9a8a7e;transition:background .15s;flex:none}
+.offsw i::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
+.offsw.on{background:#f0a030;color:#2b1a10}.offsw.on i{background:#7a4a00}.offsw.on i::after{left:18px}
+.offsw input:focus-visible+i{outline:2px solid #fff;outline-offset:2px}
+#offHint{display:none;flex-basis:100%;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;background:#f0a03022;border:1px solid #f0a030;border-radius:6px;padding:5px 10px}
+#offHint button{padding:3px 10px;font-size:12px}
+#kBody ul{margin:2px 0 6px;padding-left:20px;font-size:13px}
 .sf{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;flex:1 1 auto}
 .sf input[type=search]{flex:0 1 420px;min-width:180px}
 .brk{flex-basis:100%;height:0}
@@ -96,6 +109,7 @@ dialog h4{margin:14px 0 4px}
 <body>
 <header>
   <h1>📚 Ma Livrothèque</h1>
+  <label class="offsw" id="offLab"><input type="checkbox" id="offSw"><i></i><span id="offTxt">En ligne</span></label>
   <div class="sf">
     <input type="search" id="q" placeholder="Rechercher (auteur, titre, résumé, ISBN…)">
     <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
@@ -110,6 +124,7 @@ dialog h4{margin:14px 0 4px}
   <span id="sync" style="font-size:12px"></span>
   <div class="brk"></div>
   <span id="info"></span>
+  <div id="offHint"><span>📶 <span id="offWhy"></span> — passer en mode hors ligne pour économiser les données ?</span><button id="offGo">Passer hors ligne</button><button id="offLater" class="sec">Plus tard</button></div>
   <input type="file" id="file" accept=".csv,.txt,.tsv" hidden>
 </header>
 <div id="ov"></div>
@@ -120,6 +135,12 @@ dialog h4{margin:14px 0 4px}
 </main>
 <footer id="ver"><div><div id="verApp"></div><div id="verDb"></div></div><a id="verHist" href="#">Dernières modifications</a></footer>
 
+<dialog id="dlgK">
+  <h3>Deux versions différentes</h3>
+  <div id="kBody"></div>
+  <div class="row"><button id="kDl" class="sec">⬇ Télécharger ma version (CSV)</button></div>
+  <div class="row"><button id="kCancel" class="sec">Annuler</button><button id="kRemote" class="danger">Garder la version du dépôt</button><button id="kLocal" class="danger">Garder la version de cet appareil</button></div>
+</dialog>
 <dialog id="dlgV">
   <div id="vBody"></div>
   <div class="row"><button id="vOk" class="sec" style="display:none">✓ Marquer comme vérifié</button><button id="vEdit">✎ Modifier</button><button id="vClose" class="sec">Fermer</button></div>
@@ -266,7 +287,7 @@ function covErr(i){const q=JSON.parse(i.dataset.q||"[]"),n=q.shift();if(n){i.dat
 function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"} /* l'image "non disponible" de Google fait 128x170 */
 const coverCache=new Map();
 function repoCover(isbn){
-  const c=cfg();if(!isbn||!lib()||!c.repo||!c.token)return Promise.resolve(null);
+  const c=cfg();if(!isbn||!lib()||!c.repo||!c.token||isOff())return Promise.resolve(null);
   const key=lib()+"/"+isbn;if(coverCache.has(key))return coverCache.get(key);
   const p=(async()=>{try{
     const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/libraries/${lib()}-covers/${isbn}.jpg?ref=${encodeURIComponent(c.branch)}`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}});
@@ -275,14 +296,16 @@ function repoCover(isbn){
 }
 async function loadCover(i){const u=await repoCover(i.dataset.isbn);if(u)i.src=u;else covErr(i)}
 const coverObs=typeof IntersectionObserver==="function"?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){coverObs.unobserve(e.target);loadCover(e.target)}}),{rootMargin:"200px"}):null;
-const hydrateCovers=root=>root.querySelectorAll("img[data-isbn]").forEach(i=>coverObs?coverObs.observe(i):loadCover(i));
+const hydrateCovers=root=>root.querySelectorAll("img[data-isbn]").forEach(i=>{if(isOff()){i.style.display="none";return}coverObs?coverObs.observe(i):loadCover(i)});   // hors ligne : pas de pochettes dans le tableau (données économisées)
 const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_entree","Entré le"],["couverture","Pochette (URL)"],["a_verifier","À vérifier"],["a_garder","À garder"]];
 const KEY="livrotheque.v1", SK="livrotheque.sync.";
 const lib=()=>localStorage.getItem(SK+"lib")||"";
+const OFFK="livrotheque.offline";
+const isOff=()=>localStorage.getItem(OFFK)==="1";
 const ck=()=>KEY+"."+(lib()||"local");
 let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, cur=null;
 const $=id=>document.getElementById(id);
-const save=()=>{try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");scheduleSync()};
+const save=()=>{try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
 const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
@@ -576,7 +599,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T10:12:36Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T10:50:20Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -586,6 +609,7 @@ const renderVer=()=>{
 };
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
 async function appVersion(){
+  if(isOff()){renderVer();return}
   try{
     const r=await fetch(`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=1`);
     const [x]=r.ok?await r.json():[];
@@ -595,6 +619,7 @@ async function appVersion(){
 }
 /* La version publiée est relue au plus toutes les 10 minutes avant un envoi. Sans réponse de GitHub, on n'empêche rien (un réseau coupé ne doit pas bloquer l'enregistrement). */
 async function pageIsStale(){
+  if(isOff())return false;
   if(Date.now()-staleCheckedAt>10*60*1000)await appVersion();
   return appStale;
 }
@@ -678,6 +703,7 @@ function renderChanges(es,header){
 }
 async function loadHist(){
   const c=cfg();
+  if(isOff()){$("hDb").innerHTML="<span class='muted'>Indisponible en mode hors ligne : repassez en ligne pour consulter l'historique.</span>";return}
   if(!lib()||!c.repo||!c.token){$("hDb").innerHTML="<span class='muted'>Aucune bibliothèque synchronisée : pas d'historique à afficher.</span>";return}
   $("hDb").textContent="Chargement…";
   const H={headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"}},path="libraries/"+lib()+"-database.csv",base="https://api.github.com/repos/"+c.repo;
@@ -711,6 +737,7 @@ $("hClose").onclick=()=>$("dlgH").close();
 let verTimer=null;
 async function dbVersion(){
   const c=cfg();
+  if(isOff())return renderVer();
   if(!lib()||!c.repo||!c.token){dbInfo="";return renderVer()}
   try{
     const r=await fetch(`https://api.github.com/repos/${c.repo}/commits?sha=${encodeURIComponent(c.branch)}&path=${encodeURIComponent("libraries/"+lib()+"-database.csv")}&per_page=1`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"}});
@@ -723,14 +750,16 @@ const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff";
 const b64enc=s=>{const u=new TextEncoder().encode(s);let r="";for(let i=0;i<u.length;i+=0x8000)r+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(r)};
 const b64dec=s=>Uint8Array.from(atob(s.replace(/\s/g,"")),c=>c.charCodeAt(0)).buffer;
 async function gh(method,body,id,kind){
-  const c=cfg(id,kind);
+  const c=cfg(id,kind),t0=Date.now();
   const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/${encodeURI(c.path)}`+(method==="GET"?`?ref=${encodeURIComponent(c.branch)}&t=${Date.now()}`:""),
     {method,headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"},body:body&&JSON.stringify(body)});
+  const dt=Date.now()-t0;if(dt>8000)suggestOffline("GitHub répond lentement ("+Math.round(dt/1000)+" s)");   // connexion faible : on propose, sans rien imposer
   if(!r.ok){const e=new Error(r.status);e.status=r.status;throw e}
   return r.json();
 }
 async function pull(){
   if(!cfg().repo||!cfg().token||!lib())return;
+  if(isOff()){offStatus();return}
   setStatus("☁ lecture…");
   try{
     const f=await gh("GET");
@@ -738,12 +767,15 @@ async function pull(){
      sinon on relit le fichier (la copie locale peut avoir été lue par une ancienne version de la page, sans toutes les colonnes) */
     if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".dirty")==="1"){scheduleSync();return}
     const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
-    if(dirty&&!confirm("Des modifications locales non synchronisées existent ET le dépôt a changé.\nOK = garder la version du dépôt (perd les modifs locales)\nAnnuler = garder la version locale (écrase le dépôt au prochain enregistrement)")){
-      localStorage.setItem(SK+lib()+".sha",f.sha);scheduleSync();return}
     const incoming=parseCsv(b64dec(f.content));
     if(!incoming.length&&books.length){setStatus("☁ le dépôt renvoie une liste vide : votre copie locale ("+books.length+" livres) est conservée","#f99");return}
+    if(dirty){
+      const ch=await resolveConflict(incoming);
+      if(ch==="cancel"){setStatus("☁ conflit non résolu : vos modifications sont gardées sur cet appareil","#ffd");return "cancel"}
+      if(ch==="local"){localStorage.setItem(SK+lib()+".sha",f.sha);scheduleSync();return}   // la version de cet appareil écrasera le dépôt
+    }
     books=incoming;
-    localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));
+    localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".pend","0");localStorage.setItem(SK+lib()+".count",String(books.length));
     render();setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===404){setStatus("☁ fichier absent : il sera créé","#ffd");localStorage.removeItem(SK+lib()+".sha");if(books.length)scheduleSync()}
@@ -753,11 +785,13 @@ async function pull(){
 let syncTimer=null,syncing=false,retryN=0,retryTimer=null;
 function scheduleSync(){
   if(!cfg().repo||!cfg().token||!lib())return;
+  if(isOff()){offStatus();return}                         // hors ligne : on garde, on n'envoie rien
   setStatus("☁ modifications à envoyer…","#ffd");
   retryN=0;clearTimeout(retryTimer);                    // nouvelle modification : on repart de zéro
   clearTimeout(syncTimer);syncTimer=setTimeout(push,2500);
 }
 async function push(){
+  if(isOff()){offStatus();return}
   if(syncing){scheduleSync();return}
   /* page restée dans une ancienne version : elle pourrait réécrire un ancien format de fichier. Les modifications restent gardées (elles repartent après le rechargement). */
   if(await pageIsStale()){setStatus("☁ version périmée : rechargez la page (cliquez ici) — vos modifications sont gardées et seront envoyées ensuite","#f99");return}
@@ -768,7 +802,7 @@ async function push(){
   syncing=true;setStatus("☁ envoi…");
   try{
     const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
-    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));localStorage.setItem(SK+lib()+".pend","0");retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
       if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
@@ -776,6 +810,7 @@ async function push(){
       /* réseau injoignable ou bloqué (aucun code HTTP), ou erreur serveur 5xx : on réessaie seul, puis on propose un clic */
       const net=!e.status,transient=net||e.status>=500;
       const why=net?"réseau injoignable ou bloqué — vérifiez la connexion ou un bloqueur de publicités":"erreur "+e.message;
+      if(transient&&retryN>=1)suggestOffline("Les envois échouent (réseau instable)");
       if(transient&&retryN<5){const d=[5,15,30,60,120][retryN++];setStatus("☁ envoi impossible ("+why+") — nouvelle tentative dans "+d+" s","#f99");clearTimeout(retryTimer);retryTimer=setTimeout(push,d*1000)}
       else setStatus("☁ erreur d'envoi ("+why+") — cliquez ici pour réessayer","#f99");
     }
@@ -792,7 +827,7 @@ const getLocs=()=>{const l=getMeta().locations;return Array.isArray(l)?l:[]};
 /* nom, description et propriétaire de la bibliothèque ouverte : relus une fois par session (nouvel appareil, lien de configuration, renommage ailleurs) */
 let metaFor="";
 async function refreshMeta(){
-  if(!lib()||!cfg().repo||!cfg().token||metaFor===lib())return;
+  if(isOff()||!lib()||!cfg().repo||!cfg().token||metaFor===lib())return;
   metaFor=lib();
   const m=await loadMeta(lib());
   if(m){updateLabel();renderLocs()}else metaFor="";   // échec réseau : on réessaiera à la prochaine synchro
@@ -846,7 +881,7 @@ function useLib(id){
 }
 const refreshCur=()=>{$("curBox").style.display=lib()?"":"none";$("sCur").textContent=lib();renderLocs()};
 $("sync").onclick=()=>{if(/version périmée/.test($("sync").textContent)){location.reload();return}if(/erreur d'envoi|envoi impossible/.test($("sync").textContent)&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}};
-window.addEventListener("online",()=>{if(cfg().repo&&cfg().token&&lib()&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}});
+window.addEventListener("online",()=>{if(!isOff()&&cfg().repo&&cfg().token&&lib()&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}});
 $("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value="";["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(lib()?getMeta():null);refreshCur();sMsg("");$("dlgS").showModal()};
 $("sClose").onclick=()=>$("dlgS").close();
 $("sCopy").onclick=()=>{navigator.clipboard?.writeText(lib());sMsg("UUID copié.")};
@@ -889,7 +924,7 @@ $("sMeta").onclick=async()=>{
 $("locAdd").onclick=async()=>{const r=await addLocation($("locNew").value);if(r.ok){$("locNew").value="";sMsg("Localisation « "+r.name+" » ajoutée.")}else sMsg(r.msg,1)};
 $("locNew").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("locAdd").click()}});
 $("locList").addEventListener("click",async e=>{const b=e.target.closest("button[data-loc]");if(!b)return;const r=await removeLocation(b.dataset.loc);if(r.ok)sMsg("Localisation supprimée"+(r.used?" ("+r.used+" livre"+(r.used>1?"s":"")+" mis à jour).":"."));else if(r.msg)sMsg(r.msg,1)});
-window.addEventListener("beforeunload",e=>{if(localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
+window.addEventListener("beforeunload",e=>{if(!isOff()&&localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
 
 const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
@@ -950,12 +985,90 @@ async function applyCfgHash(){
   return goApp();
 }
 
+/* ---------- Mode hors ligne (à la demande) ----------
+   Actif : plus aucun échange avec le dépôt GitHub (ni lecture, ni envoi, ni version publiée, ni historique, ni pochettes du dépôt).
+   Les ajouts, modifications et suppressions restent enregistrés dans le navigateur et partent en un seul envoi au retour en ligne.
+   Les recherches d'informations (ISBN, titre, auteur) ne sont pas concernées : elles restent lancées à la demande. */
+const pendKey=()=>SK+lib()+".pend";
+const pendN=()=>+localStorage.getItem(pendKey())||0;
+function offStatus(){
+  if(!lib())return;
+  const n=pendN();
+  setStatus("⏸ hors ligne — "+(n?n+" modification"+(n>1?"s":"")+" en attente d'envoi":"aucune modification en attente"),"#ffd");
+}
+function applyOffUi(){
+  const on=isOff();
+  $("offSw").checked=on;$("offTxt").textContent=on?"Hors ligne":"En ligne";$("offLab").classList.toggle("on",on);
+  $("offLab").title=on?"Mode hors ligne : aucun échange avec le dépôt, les modifications restent sur cet appareil. Cliquez pour revenir en ligne et les envoyer.":"Passer en mode hors ligne : économise les données, les modifications restent sur cet appareil et partent au retour en ligne (les recherches d'infos restent possibles).";
+}
+/* ----- conflit : l'appareil a des modifications non envoyées ET le dépôt a changé ----- */
+const rowKey=b=>b.isbn?"i"+String(b.isbn).replace(/\D/g,""):"t"+nk((b.auteur||"")+" "+(b.titre||""));
+const sameRow=(a,b)=>COLS.every(([k])=>String(a[k]||"")===String(b[k]||""));
+function diffLists(local,remote){
+  const mp=l=>{const m=new Map();l.forEach(b=>{const k=rowKey(b);if(!m.has(k))m.set(k,[]);m.get(k).push(b)});return m};
+  const L=mp(local),R=mp(remote),out={onlyLocal:[],onlyRemote:[],changed:[]};
+  for(const k of new Set([...L.keys(),...R.keys()])){
+    const a=(L.get(k)||[]).slice(),b=(R.get(k)||[]).slice();
+    for(let i=a.length-1;i>=0;i--){const j=b.findIndex(x=>sameRow(a[i],x));if(j>=0){a.splice(i,1);b.splice(j,1)}}   // lignes identiques : rien à signaler
+    const n=Math.min(a.length,b.length);
+    for(let i=0;i<n;i++)out.changed.push(a[i]);
+    out.onlyLocal.push(...a.slice(n));out.onlyRemote.push(...b.slice(n));
+  }
+  return out;
+}
+function resolveConflict(remote){
+  const d=diffLists(books,remote),name=b=>esc((b.titre||"(sans titre)")+(b.auteur?" — "+b.auteur:""));
+  const part=(t,l)=>l.length?"<h4>"+t+" ("+l.length+")</h4><ul>"+l.slice(0,6).map(b=>"<li>"+name(b)+"</li>").join("")+(l.length>6?"<li class='muted'>… et "+(l.length-6)+" autre"+(l.length-6>1?"s":"")+"</li>":"")+"</ul>":"";
+  $("kBody").innerHTML="<p>Cet appareil a des modifications non envoyées, et le dépôt a été modifié depuis un autre appareil.</p>"
+    +"<p>Cet appareil : <b>"+books.length+"</b> livres · dépôt : <b>"+remote.length+"</b> livres.</p>"
+    +part("Seulement sur cet appareil",d.onlyLocal)+part("Seulement dans le dépôt",d.onlyRemote)+part("Modifiés (version différente)",d.changed)
+    +((d.onlyLocal.length+d.onlyRemote.length+d.changed.length)?"":"<p class='muted'>Aucune différence de contenu détectée.</p>")
+    +"<p><b>Une seule version peut être gardée</b> (pas de fusion automatique). Conseil : téléchargez votre version avant de choisir.</p>";
+  return new Promise(res=>{kRes=res;$("dlgK").showModal()});
+}
+let kRes=null;
+const kDone=v=>{const r=kRes;kRes=null;if($("dlgK").open)$("dlgK").close();if(r)r(v)};
+$("dlgK").addEventListener("close",()=>kDone("cancel"));   // Échap : équivaut à Annuler
+$("kDl").onclick=()=>downloadCsv(toCsv(),"ma-version-locale.csv");
+$("kCancel").onclick=()=>kDone("cancel");$("kRemote").onclick=()=>kDone("remote");$("kLocal").onclick=()=>kDone("local");
+/* ----- interrupteur ----- */
+async function setOffline(on){
+  if(on){localStorage.setItem(OFFK,"1");clearTimeout(syncTimer);clearTimeout(retryTimer);applyOffUi();hideOffHint();offStatus();if(!lib())setStatus("⏸ hors ligne","#ffd");render();renderVer();return}
+  localStorage.removeItem(OFFK);applyOffUi();hideOffHint();render();
+  if(cfg().repo&&cfg().token&&lib()){
+    const r=await pull();
+    if(r==="cancel"){await setOffline(true);return}    // choix annulé : on reste hors ligne, rien n'est perdu
+    appVersion();
+  }else setStatus("");
+}
+$("offSw").onchange=()=>setOffline($("offSw").checked);
+/* ----- suggestion (jamais de bascule automatique) ----- */
+const SNOOZE="livrotheque.offline.snooze";
+function hideOffHint(){const h=$("offHint");h.style.display="none";setHH()}
+function suggestOffline(why){
+  if(isOff()||!lib()||!cfg().repo||Date.now()<+localStorage.getItem(SNOOZE))return;
+  $("offWhy").textContent=why;$("offHint").style.display="flex";setHH();
+}
+$("offGo").onclick=()=>setOffline(true);
+$("offLater").onclick=()=>{localStorage.setItem(SNOOZE,String(Date.now()+3600*1000));hideOffHint()};   // pas de nouvelle suggestion pendant 1 h
+function connCheck(){
+  const c=navigator.connection;if(!c)return;                       // API absente de Firefox et Safari : seuls les critères mesurés s'appliquent
+  if(c.saveData)suggestOffline("L'économiseur de données de l'appareil est activé");
+  else if(/2g/.test(c.effectiveType||""))suggestOffline("Connexion très lente ("+c.effectiveType.toUpperCase()+")");
+  else if(c.downlink&&c.downlink<0.5)suggestOffline("Débit faible (environ "+c.downlink+" Mbit/s)");
+}
+if(navigator.connection&&navigator.connection.addEventListener)navigator.connection.addEventListener("change",connCheck);
+window.addEventListener("offline",()=>suggestOffline("L'appareil n'a plus de réseau"));
+setTimeout(connCheck,1500);
+applyOffUi();
+
 render();
 updateLabel();
 renderVer();
 appVersion();
-applyCfgHash().then(redirected=>{if(!redirected)pull()});
-if(!books.length&&!lib())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
+applyCfgHash().then(redirected=>{if(!redirected){pull();if(isOff())offStatus()}});
+if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});   // page réouvrable sans réseau
+if(!books.length&&!lib()&&!isOff())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
 </body>
 </html>
