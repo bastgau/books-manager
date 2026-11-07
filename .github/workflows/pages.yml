@@ -25,7 +25,7 @@ jobs:
           npx -y playwright@1.63.0 install --with-deps chromium-headless-shell
           echo "CHROME=$(find ~/.cache/ms-playwright -name chrome-headless-shell -type f | head -1)" >> "$GITHUB_ENV"
       - name: Unit tests, scenarios and service worker test
-        run: SW=1 tests/run-all.sh
+        run: SW=1 TEST_OUT="$RUNNER_TEMP/livrotheque-tests" tests/run-all.sh
       - name: Keep scenario outputs (values to read)
         if: always()
         uses: actions/upload-artifact@v4
@@ -33,8 +33,6 @@ jobs:
           name: test-output
           path: ${{ runner.temp }}/livrotheque-tests/*.txt
           if-no-files-found: ignore
-    env:
-      TEST_OUT: ${{ runner.temp }}/livrotheque-tests
 
   deploy:
     # published only from main, and only when the tests ran without error
