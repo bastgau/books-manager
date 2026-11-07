@@ -300,10 +300,35 @@ const coverImg=(b,s,cls="cv")=>{const q=coverQ(b,s);return q.length?`<img class=
 function covErr(i){const q=JSON.parse(i.dataset.q||"[]"),n=q.shift();if(n){i.dataset.q=JSON.stringify(q);i.src=n}else i.style.display="none"}
 function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"} /* l'image "non disponible" de Google fait 128x170 */
 const coverCache=new Map();
+/* Covers stored in the repository: the folder is listed once per page load, with its ETag (an unchanged folder costs a 304,
+   which GitHub does not count against the rate limit); then only files that exist are downloaded.
+   null = list unknown (network error, or 1 000 files or more, the Contents API limit): every ISBN is then asked, as before. */
+let coverIdx=null;
+function coverIndex(){
+  if(coverIdx&&coverIdx.lib===lib())return coverIdx.p;
+  const c=cfg(),k=SK+lib()+".covers";
+  const p=(async()=>{
+    let saved=null;try{saved=JSON.parse(localStorage.getItem(k))}catch(e){}
+    try{
+      const H={Authorization:"Bearer "+c.token,Accept:"application/vnd.github.object+json"};if(saved&&saved.e)H["If-None-Match"]=saved.e;
+      const r=await ghFetch("liste des pochettes",`https://api.github.com/repos/${c.repo}/contents/libraries/${lib()}-covers?ref=${encodeURIComponent(c.branch)}`,{headers:H,cache:saved&&saved.e?"no-store":undefined});
+      if(r.status===304&&saved&&Array.isArray(saved.n))return new Set(saved.n);
+      if(r.status===404){try{localStorage.removeItem(k)}catch(e){}return new Set()}   // no covers folder
+      if(!r.ok)return null;
+      const j=await r.json(),entries=Array.isArray(j)?j:(j.entries||[]);
+      if(entries.length>=1000){try{localStorage.removeItem(k)}catch(e){}return null}
+      const n=entries.filter(x=>x.type==="file").map(x=>x.name);
+      try{localStorage.setItem(k,JSON.stringify({e:r.headers.get("ETag")||"",n}))}catch(e){}
+      return new Set(n);
+    }catch(e){return null}
+  })();
+  coverIdx={lib:lib(),p};return p;
+}
 function repoCover(isbn){
   const c=cfg();if(!isbn||!lib()||!c.repo||!c.token||isOff())return Promise.resolve(null);
   const key=lib()+"/"+isbn;if(coverCache.has(key))return coverCache.get(key);
   const p=(async()=>{try{
+    const idx=await coverIndex();if(idx&&!idx.has(isbn+".jpg"))return null;   // not in the folder: no request
     const r=await ghFetch("pochettes du dépôt",`https://api.github.com/repos/${c.repo}/contents/libraries/${lib()}-covers/${isbn}.jpg?ref=${encodeURIComponent(c.branch)}`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}});
     return r.ok?URL.createObjectURL(await r.blob()):null}catch(e){return null}})();
   coverCache.set(key,p);return p;
@@ -661,7 +686,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:42:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:44:36Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
