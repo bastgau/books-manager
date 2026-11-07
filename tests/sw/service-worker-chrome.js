@@ -6,6 +6,8 @@ let srv, hits = [], tag = "", delay = 0;
 const handler = (req, res) => {
   let u = req.url.split("?")[0];
   if (u === "/books-manager") { res.writeHead(301, { Location: P }); return res.end() }
+  // another GitHub Pages project of the same user: same origin, its own service worker
+  if (u === "/autre-app/sw.js") { res.writeHead(200, { "Content-Type": "text/javascript" }); return res.end("self.addEventListener('fetch',()=>{})") }
   if (!u.startsWith(P)) { res.writeHead(404); return res.end() }
   u = u.slice(P.length) || "index.html"; if (u.endsWith("/")) u += "index.html";
   const f = path.join(ROOT, u); hits.push(req.method + " " + req.url + (req.headers["if-none-match"] ? " (inm)" : "") + " cc=" + (req.headers["cache-control"] || "-"));
@@ -34,7 +36,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const ctrlF5 = async () => { await cmd("Page.reload", { ignoreCache: true }); await done() };
   const title = () => ev("document.title");
   const out = {};
-  await nav(); await sleep(5000);   // enregistrement différé de 3 s après le chargement
+  await nav();
+  // the other project already has a cache and a service worker on this origin, before ours installs
+  await ev("caches.open('autre-app-v1').then(c=>c.put('/autre-app/x',new Response('x'))).then(()=>navigator.serviceWorker.register('/autre-app/sw.js',{scope:'/autre-app/'})).then(()=>true)");
+  await sleep(5000);   // enregistrement différé de 3 s après le chargement
   out["1_service_worker_après_5_s"] = await ev("navigator.serviceWorker.getRegistrations().then(r=>r.map(x=>(x.active&&x.active.state)||(x.installing&&x.installing.state)||(x.waiting&&x.waiting.state)).join())");
   out["1_copies_gardées"] = await ev("caches.keys().then(async ks=>{const r={};for(const k of ks){r[k.slice(0,26)]=(await (await caches.open(k)).keys()).map(x=>new URL(x.url).pathname).join(\" \")}return r})");
   await nav(); out["2_page_contrôlée_à_la_visite_suivante"] = await ev("!!navigator.serviceWorker.controller");
@@ -45,6 +50,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   srv.closeAllConnections(); await new Promise(r => srv.close(r));
   await cmd("Page.reload", { ignoreCache: false }); await done();
   out["5_réseau_coupé_puis_F5"] = { titre: await title(), tableau_construit: await ev("!!document.getElementById(\"tbody\")") };
+  const other = "Promise.all([caches.keys(),navigator.serviceWorker.getRegistrations()]).then(([k,r])=>({caches:k.map(x=>x.slice(0,18)).join(\" \"),service_workers:r.map(x=>new URL(x.scope).pathname).join(\" \")}))";
+  out["6_autre_app_du_même_domaine_après_installation"] = await ev(other);
+  await ev("(goTo=function(){},forceUpdate()).then(()=>true)");   // "mettre à jour" (navigation neutralisée)
+  out["6_après_mettre_à_jour"] = await ev(other);
   console.log(JSON.stringify(out, null, 1));
   ch.kill(); process.exit(0);
 })().catch(e => { console.error(e); process.exit(1) });

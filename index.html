@@ -648,7 +648,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T19:43:33Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T19:49:09Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -810,8 +810,10 @@ $("hDb").addEventListener("click",async ev=>{
 let goTo=u=>location.replace(u);
 async function forceUpdate(){
   try{
-    if("serviceWorker" in navigator)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
-    if(window.caches)for(const k of await caches.keys())await caches.delete(k);
+    /* this app only: other GitHub Pages projects of the same user share the origin, its service workers and its caches */
+    const scope=new URL("./",location.href).href;
+    if("serviceWorker" in navigator)for(const r of await navigator.serviceWorker.getRegistrations())if(r.scope===scope)await r.unregister();
+    if(window.caches)for(const k of await caches.keys())if(k.startsWith("livrotheque-"))await caches.delete(k);
   }catch(e){}
   window.__noPrompt=true;                                  // les modifications en attente restent sur l'appareil : pas de question au départ
   goTo(location.pathname+"?maj="+Date.now()+location.hash);
