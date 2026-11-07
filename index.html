@@ -119,7 +119,9 @@ dialog h4{margin:14px 0 4px}
   <label class="offsw" id="offLab"><input type="checkbox" id="offSw"><i></i><span id="offTxt">En ligne</span></label>
   <div class="brk sfbrk"></div>   <!-- recherche et filtres : ligne à part, sous le titre -->
   <div class="sf">
-    <input type="search" id="q" placeholder="Rechercher (auteur, titre, résumé, ISBN…)">
+    <input type="search" id="q" placeholder="Rechercher, ou auteur: titre: isbn: resume: localisation:" title="Texte libre : auteur, titre, résumé, ISBN, localisation, dates et pages.
+Pour un seul champ : auteur:musso, titre:la nuit, isbn:978-2-07, resume:guerre, localisation:salon.
+Plusieurs critères se cumulent : auteur:de rosnay titre:sarah">
     <label><input type="checkbox" id="fNoIsbn"> sans ISBN</label>
     <label><input type="checkbox" id="fNoRes"> sans résumé</label>
     <label><input type="checkbox" id="fUnread"> non lus</label>
@@ -395,11 +397,23 @@ function toCsv(list=books){
 /* ---------- Affichage ---------- */
 const WIDTHS={auteur:"190px",titre:"310px",date_lecture:"100px",nb_pages:"70px",localisation:"150px",resume:"72px",isbn:"132px",date_entree:"100px",a_garder:"96px"};
 const norm=s=>String(s||"").replace(/^\s*\([^)]*\)\s*/,"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
-/* search: lowercase without accents ("eloise" finds "Éloïse"); punctuation kept, unlike nk(). Each book's searchable text is
-   computed once and cached per book object; save() clears the cache, since some changes edit a book in place. */
+/* Search box. Text without prefix is looked for in the useful fields (not the cover URL nor the "à vérifier" / "à garder" flags).
+   "auteur:", "titre:", "isbn:", "resume:" (or "résumé:") and "localisation:" limit a term to one field; the value runs until the
+   next prefix, so "auteur:de rosnay titre:sarah" needs no quotes, and every term must match. Accents and case are ignored
+   (prefixes included), punctuation is kept, and dashes or spaces in an ISBN are ignored. Any other "word:" is plain text.
+   Each book's folded fields are computed once and cached per book object; save() clears the cache (some changes edit a book in place). */
 const fold=s=>String(s??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+const SEARCH_FIELDS=["auteur","titre","resume","isbn","localisation","date_lecture","date_entree","nb_pages"];
+const isbnDigits=s=>s.replace(/[^0-9x]/g,"");
 let searchCache=new WeakMap();
-const searchText=b=>{let t=searchCache.get(b);if(t===undefined){t=COLS.map(([k])=>fold(b[k])).join("\n");searchCache.set(b,t)}return t};
+const searchFields=b=>{let t=searchCache.get(b);if(t===undefined){t={};SEARCH_FIELDS.forEach(k=>t[k]=fold(b[k]));t.all=SEARCH_FIELDS.map(k=>t[k]).join("\n");searchCache.set(b,t)}return t};
+function parseQuery(raw){
+  const s=fold(raw),re=/(^|\s)(auteur|titre|isbn|resume|localisation):/g,terms=[];let m,from=0,field=null;
+  const add=v=>{v=v.trim();if(v)terms.push({k:field,v:field==="isbn"?isbnDigits(v)||v:v})};
+  while((m=re.exec(s))){add(s.slice(from,m.index));field=m[2];from=re.lastIndex}
+  add(s.slice(from));return terms;
+}
+const matches=(b,terms)=>{const f=searchFields(b);return terms.every(t=>(t.k?f[t.k]:f.all).includes(t.v))};
 const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c)?c:"#"};
 const expanded=new Set();
 let letters=[];
@@ -410,11 +424,11 @@ function render(){
   const cols=SHOW.map(k=>COLS.find(c=>c[0]===k)).filter(c=>c&&(!mobile||c[0]==="auteur"||c[0]==="titre"||c[0]==="resume"));
   const W=mobile?{auteur:"34%",titre:"auto",resume:"46px"}:WIDTHS;
   $("thead").innerHTML=`<th style="width:${mobile?52:56}px"></th>`+cols.map(([k,l])=>`<th data-k="${k}" style="width:${W[k]||"auto"}">${mobile&&k==="resume"?"📝":l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
-  const q=fold($("q").value).trim();
+  const terms=parseQuery($("q").value),q=terms.length>0;
   const dupSet=dupIndexes();
   const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
   let list=books.map((b,i)=>[b,i]).filter(([b,i])=>
-    (!q||searchText(b).includes(q))&&
+    (!q||matches(b,terms))&&
     (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture)&&(!$("fCheck").checked||b.a_verifier)&&(!$("fDup").checked||dupSet.has(i)));
   const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):/^(auteur|titre)$/.test(sortKey)?norm(b[sortKey]).toLowerCase():String(b[sortKey]).toLowerCase();
   list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir||String(a[0].titre).localeCompare(String(b[0].titre))});
@@ -693,7 +707,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:47:21Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T21:12:22Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;

@@ -14,6 +14,20 @@ window.__pending=(async function(){try{
   o["D_ISBN"]=await search(books[1].isbn);
   o["E_texte_absent"]=await search("zzzz");
   o["F_« undefined » (champ manquant)"]=await (async function(){var b=books[0];delete b.a_garder;save();var n=await search("undefined");b.a_garder="";save();return n})();
+  /* field prefixes */
+  var count=function(f){return books.filter(f).length};
+  o["I_auteur:emilie"]={résultats:await search("auteur:emilie"),attendu:emilie};
+  o["I2_titre:emilie_(prénom_absent_des_titres)"]=await search("titre:emilie");
+  o["I3_Résumé:FICTIF_(préfixe_avec_accent_et_majuscules)"]={résultats:await search("Résumé:FICTIF"),attendu:books.filter(function(b){return b.resume}).length};
+  o["I4_localisation:chalet"]={résultats:await search("localisation:chalet"),attendu:count(function(b){return b.localisation==="Chalet"})};
+  o["I5_auteur:emilie_titre:exemple_1_(les_deux)"]={résultats:await search("auteur:emilie titre:exemple 1"),attendu:count(function(b){return /Émilie/.test(b.auteur)&&/exemple 1/.test(b.titre)})};
+  var i1=books[1].isbn,dashed=i1.slice(0,3)+"-"+i1.slice(3,4)+"-"+i1.slice(4,9)+"-"+i1.slice(9);
+  o["I6_isbn_avec_tirets"]={recherche:"isbn:"+dashed,résultats:await search("isbn:"+dashed)};
+  o["I7_auteur:_vide"]={résultats:await search("auteur:"),tous:books.length};
+  /* plain text: no longer in the cover URL nor in the two flags */
+  var b0=books[0],keep={g:b0.a_garder,c:b0.couverture,v:b0.a_verifier};b0.a_garder="oui";b0.couverture="https://covers.example/a.jpg";b0.a_verifier="1";save();
+  o["J_texte_libre_hors_URL_et_indicateurs"]={"oui":await search("oui"),"covers.example":await search("covers.example"),"http://x_(préfixe_inconnu_=_texte)":await search("http://x")};
+  b0.a_garder=keep.g;b0.couverture=keep.c;b0.a_verifier=keep.v;save();
   await search("");
   /* typing quickly: one rebuild of the table for the whole word */
   var n=0,mo=new MutationObserver(function(){n++});mo.observe(q("#tbody"),{childList:true});   // one batch per rebuild of the table
