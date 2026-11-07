@@ -1,34 +1,39 @@
-/* Service worker : permet de rouvrir la page sans réseau (ou avec un réseau très lent).
-   - La page (navigation) : réseau d'abord ; au bout de 3 s ou en cas d'échec, copie gardée. Une nouvelle version publiée est prise dès qu'elle est joignable.
-   - Les fichiers annexes (manifeste, icônes) : copie gardée immédiatement, rafraîchie en arrière-plan. Aucune attente du réseau : sinon le chargement
-     semblerait ne jamais finir sur une connexion lente.
+/* Service worker : permet de rouvrir la page sans réseau.
+   - En ligne (cas normal) : la page vient TOUJOURS du réseau, comme sans service worker (un rechargement récupère donc la dernière version).
+     La copie gardée ne sert que si le réseau échoue (hors connexion).
+   - Mode « Hors ligne » choisi dans l'application (drapeau « offline-flag » posé par la page) : copie gardée immédiatement, sans attendre le réseau
+     (connexion faible) ; une nouvelle version est téléchargée en arrière-plan et la page en est prévenue.
+   - Fichiers annexes (manifeste, icônes) : copie gardée immédiatement, rafraîchie en arrière-plan.
    Les appels à GitHub et aux sources d'infos (autres domaines) ne passent pas par ici. */
-const CACHE = "livrotheque-shell-3";
+const CACHE = "livrotheque-shell-4", FLAGS = "livrotheque-flags";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
-self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
-self.addEventListener("activate", e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));
+const FLAG = () => new URL("offline-flag", self.registration.scope).href;
+self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting())));
+self.addEventListener("activate", e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== FLAGS).map(k => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener("fetch", e => {
   const r = e.request, u = new URL(r.url);
   if (r.method !== "GET" || u.origin !== location.origin) return;
-  e.respondWith(r.mode === "navigate" ? pageFirstNet(r, e) : assetFromCache(r, e));
+  e.respondWith(r.mode === "navigate" ? page(r, e) : assetFromCache(r, e));
 });
-/* Si la copie gardée est servie (réseau lent), la mise à jour continue sous waitUntil : sans cela le navigateur peut arrêter le service worker
-   avant la fin du téléchargement et la page resterait pour toujours dans l'ancienne version. La page est prévenue quand la nouvelle est prête. */
-async function pageFirstNet(r, e) {
+async function page(r, e) {
   const c = await caches.open(CACHE);
-  const cached = await c.match(r, { ignoreSearch: true });
-  let servedCached = false;
-  const net = fetch(new Request(r, { cache: "no-cache" })).then(async res => { if (res.ok) await c.put(r, res.clone()); return res });
-  e.waitUntil(net.then(async res => {
-    if (servedCached && res.ok && cached && res.headers.get("etag") !== cached.headers.get("etag")) {
-      for (const cl of await self.clients.matchAll()) cl.postMessage({ type: "update-ready" });
+  const flagged = !!(await caches.open(FLAGS).then(f => f.match(FLAG())));
+  if (!flagged) {
+    try {                                                              // normal : réseau d'abord, sans délai d'attente
+      const res = await fetch(r);
+      if (res.ok) e.waitUntil(c.put(r, res.clone()).catch(() => {}));
+      return res;
+    } catch (err) {
+      return (await c.match(r, { ignoreSearch: true })) || Response.error();   // hors connexion : copie gardée
     }
+  }
+  const cached = await c.match(r, { ignoreSearch: true });            // mode hors ligne choisi : copie gardée tout de suite
+  const net = fetch(r).then(async res => { if (res.ok) await c.put(r, res.clone()); return res });
+  if (!cached) return net;
+  e.waitUntil(net.then(async res => {
+    if (res.ok && res.headers.get("etag") !== cached.headers.get("etag")) for (const cl of await self.clients.matchAll()) cl.postMessage({ type: "update-ready" });
   }).catch(() => {}));
-  if (!cached) return net;                                            // rien en réserve : on attend le réseau
-  return Promise.race([
-    net.then(res => (res.ok || res.type === "opaqueredirect") ? res : (servedCached = true, cached), () => (servedCached = true, cached)),
-    new Promise(ok => setTimeout(() => { servedCached = true; ok(cached) }, 3000)),
-  ]);
+  return cached;
 }
 async function assetFromCache(r, e) {
   const c = await caches.open(CACHE);
