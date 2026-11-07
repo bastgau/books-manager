@@ -19,4 +19,4 @@ timeout "${TIMEOUT:-110}" "$CHROME" --no-sandbox --disable-gpu --disable-dev-shm
   --virtual-time-budget="${BUDGET:-30000}" --dump-dom "file://$OUT/run.html" 2>/dev/null | grep -o '<title>[^<]*' | sed 's/&quot;/"/g;s/&amp;/\&/g;s/<title>//' | node -e '
 let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   if(!s.trim()){console.log("(aucune sortie : la page a planté ou est restée bloquée)");process.exit(3)}
-  try{const j=JSON.parse(s);const p=(o,i="")=>{for(const [k,v] of Object.entries(o)){if(v&&typeof v==="object"&&!Array.isArray(v)){console.log(i+k+" :");p(v,i+"   ")}else console.log(i+k+" : "+(Array.isArray(v)?JSON.stringify(v):v))}};p(j);if(j.erreur)process.exit(4)}catch(e){console.log(s)}})'
+  try{const j=JSON.parse(s);const p=(o,i="")=>{for(const [k,v] of Object.entries(o)){if(v&&typeof v==="object"&&!Array.isArray(v)){console.log(i+k+" :");p(v,i+"   ")}else console.log(i+k+" : "+(Array.isArray(v)?JSON.stringify(v):v))}};p(j);if(j.erreur)process.exit(4)}catch(e){console.log(s);console.log("(pas de résultat : le scénario n\x27est pas allé au bout, budget de temps BUDGET dépassé ?)");process.exit(5)}})'

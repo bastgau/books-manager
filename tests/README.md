@@ -36,7 +36,7 @@ Useful variables: `CHROME`, `APP` (page to test, default `../index.html`), `BOOK
 ## What the results mean
 
 - `unit/ids-and-csv.js` fails with a non-zero exit code if a check fails.
-- Scenarios **print values to be read** (many are `true`/`false` or counts); they do not assert them. `run-all.sh` only reports a failure when a scenario produces no output (page crashed or stuck) or reports an `erreur`. After a change, read the printed lines and compare with the previous run.
+- Scenarios **print values to be read** (many are `true`/`false` or counts); they do not assert them. `run-all.sh` only reports a failure when a scenario produces no output (page crashed or stuck), does not reach its end (no result: virtual time budget too short; a long scenario gets its own budget as a 3rd value in the `SCENARIOS` list) or reports an `erreur`. After a change, read the printed lines and compare with the previous run.
 - A sample of about 400 books is enough for every scenario. With all 1 199 books of a real library, headless Chrome can run out of memory on small machines and the page crashes without output.
 
 ## Not covered

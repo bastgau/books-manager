@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Install headless Chrome
@@ -28,7 +28,7 @@ jobs:
         run: SW=1 TEST_OUT="$RUNNER_TEMP/livrotheque-tests" tests/run-all.sh
       - name: Keep scenario outputs (values to read)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-output
           path: ${{ runner.temp }}/livrotheque-tests/*.txt
@@ -49,7 +49,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Stamp the version into the published copy
         run: tools/stamp.sh "$RUNNER_TEMP/site"
       - uses: actions/upload-pages-artifact@v3
