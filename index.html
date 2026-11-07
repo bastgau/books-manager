@@ -599,13 +599,15 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T10:50:20Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T11:09:33Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
 const renderVer=()=>{
-  $("verApp").textContent="Application : "+(appInfo||new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"");
-  $("verDb").textContent="Base : "+(dbInfo||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
+  /* dernières versions connues, gardées sur l'appareil : affichées aussi hors ligne ou au démarrage sans réseau */
+  const app=appInfo||localStorage.getItem("livrotheque.appinfo")||"",db=dbInfo||(lib()&&localStorage.getItem(SK+lib()+".dbinfo"))||"",off=isOff()?" (hors ligne : dernière version connue)":"";
+  $("verApp").textContent="Application : "+(app||new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+(app&&off)+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"");
+  $("verDb").textContent="Base : "+(db?db+off:(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
 };
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
 async function appVersion(){
@@ -613,7 +615,7 @@ async function appVersion(){
   try{
     const r=await fetch(`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=1`);
     const [x]=r.ok?await r.json():[];
-    if(x){appInfo=fmtCommit(x);appStale=new Date(x.commit.committer.date)-new Date(APP_BUILD)>5*60*1000;staleCheckedAt=Date.now()}
+    if(x){appInfo=fmtCommit(x);localStorage.setItem("livrotheque.appinfo",appInfo);appStale=new Date(x.commit.committer.date)-new Date(APP_BUILD)>5*60*1000;staleCheckedAt=Date.now()}
   }catch(e){}
   renderVer();
 }
@@ -742,7 +744,7 @@ async function dbVersion(){
   try{
     const r=await fetch(`https://api.github.com/repos/${c.repo}/commits?sha=${encodeURIComponent(c.branch)}&path=${encodeURIComponent("libraries/"+lib()+"-database.csv")}&per_page=1`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"}});
     const [x]=r.ok?await r.json():[];
-    dbInfo=x?fmtCommit(x):"";
+    dbInfo=x?fmtCommit(x):"";if(dbInfo)localStorage.setItem(SK+lib()+".dbinfo",dbInfo);
   }catch(e){dbInfo=""}
   renderVer();
 }
