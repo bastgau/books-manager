@@ -51,6 +51,14 @@ t("en-tête d'un fichier neuf : id présent", emptyCsv().includes('"id"') && emp
 const hasIdOnlyHeader = '"auteur"\t"titre"\t"id"\r\n"X"\t"Y"\t"0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"\r\n';
 t("CSV avec id mais colonnes manquantes : lu", parseCsv(enc(hasIdOnlyHeader))[0].id === "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b");
 
+// paragraphs in a value (summary): kept through the file, one line per book
+const para = mk("PARA Anne", "Paragraphes", { resume: "Premier paragraphe.\nDeuxième\tavec tabulation.\r\nChemin C:\\dossier et \\n tapé tel quel", id: createBookId() });
+const paraCsv = toCsv([para]);
+t("résumé avec retours à la ligne : une seule ligne par livre dans le fichier", paraCsv.split("\r\n").length === 2);
+t("résumé avec retours à la ligne : aller-retour identique (\\r\\n devient \\n)", parseCsv(enc(paraCsv))[0].resume === para.resume.replace(/\r\n/g, "\n"));
+const oldBs = '"auteur"\t"titre"\t"resume"\r\n"X"\t"Y"\t"C:\\dossier\\photos ; 50\\% de remise"\r\n';
+t("ancien fichier avec un \\ isolé : lu tel quel", parseCsv(enc(oldBs))[0].resume === "C:\\dossier\\photos ; 50\\% de remise", parseCsv(enc(oldBs))[0].resume);
+
 /* 3. historique */
 const hdrOld = '"auteur"\t"titre"\t"date_lecture"\t"nb_pages"\t"localisation"\t"resume"\t"isbn"\t"date_entree"\t"couverture"\t"a_verifier"\t"a_garder"';
 const hdrNew = hdrOld + '\t"id"';

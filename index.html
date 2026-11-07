@@ -345,17 +345,21 @@ const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
 
 /* ---------- CSV (tabulations, guillemets non échappés, encodage mixte UTF-8 / Windows-1252) ---------- */
 function decodeLine(bytes){try{return new TextDecoder("utf-8",{fatal:true}).decode(bytes)}catch(e){return new TextDecoder("windows-1252").decode(bytes)}}
+/* line breaks and tabs inside a value are written as \n and \t (backslash itself as \\), so a book stays on one line and paragraphs are kept;
+   a backslash followed by any other character is left as is (files written before this change) */
+const csvEnc=v=>String(v??"").replace(/\\/g,"\\\\").replace(/\r\n|\r|\n/g,"\\n").replace(/\t/g,"\\t");
+const csvDec=v=>v.replace(/\\([\\nt])/g,(_,c)=>c==="n"?"\n":c==="t"?"\t":"\\");
 function parseCsv(buf){
   const u=new Uint8Array(buf), lines=[]; let s=0;
   for(let i=0;i<=u.length;i++) if(i===u.length||u[i]===10){ if(i>s) lines.push(decodeLine(u.subarray(s,i)).replace(/\r$/,"")); s=i+1; }
   if(lines.length&&lines[0].charCodeAt(0)===0xFEFF) lines[0]=lines[0].slice(1);
   if(!lines.length)return [];                                  // fichier vide : aucune ligne (et non une erreur)
   const head=lines.shift().split("\t").map(h=>h.replace(/^"|"$/g,"").trim());
-  return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>x.replace(/^"|"$/g,""));const o={};
+  return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>csvDec(x.replace(/^"|"$/g,"")));const o={};
     COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});{const i=head.indexOf("id"),v=i>=0?(c[i]||"").trim().toLowerCase():"";o.id=isBookId(v)?v:""}/* ancien CSV sans colonne id : identifiant vide */o.isbn=cleanIsbn(o.isbn);o.a_garder=/^(oui|non)$/i.test(o.a_garder)?o.a_garder.toLowerCase():"";return o});
 }
 function toCsv(list=books){
-  const f=v=>'"'+String(v??"").replace(/[\t\r\n]+/g," ")+'"';
+  const f=v=>'"'+csvEnc(v)+'"';
   /* fichier trié par identifiant (= ordre de création, copie : `books` n'est pas réordonné) ; tant que des fiches n'ont pas d'identifiant, l'ordre est inchangé */
   const rows=list.every(b=>isBookId(b.id))?[...list].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0):list;
   return "﻿"+[CSV_COLS.map(k=>f(k)).join("\t"),...rows.map(b=>CSV_COLS.map(k=>f(b[k])).join("\t"))].join("\r\n");
@@ -648,7 +652,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:03:26Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:25:11Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
