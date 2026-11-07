@@ -707,7 +707,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T21:36:52Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T22:23:53Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_COMMIT="";   /* commit of the published copy (7 characters), written by tools/stamp.sh; empty when the page comes straight from the repository */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
@@ -1140,6 +1140,10 @@ $("locNew").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault(
 $("locList").addEventListener("click",async e=>{const b=e.target.closest("button[data-loc]");if(!b)return;const r=await removeLocation(b.dataset.loc);if(r.ok)sMsg("Localisation supprimée"+(r.used?" ("+r.used+" livre"+(r.used>1?"s":"")+" mis à jour).":"."));else if(r.msg)sMsg(r.msg,1)});
 window.addEventListener("beforeunload",e=>{if(!window.__noPrompt&&!isOff()&&localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
+/* coming back to the tab or app: also check for a newer published version, at most once every 10 minutes since the last
+   attempt or success (a failing check is not retried at every return, which would use up the GitHub API limit) */
+let appTriedAt=0;
+document.addEventListener("visibilitychange",()=>{if(document.hidden||isOff()||Date.now()-Math.max(appTriedAt,staleCheckedAt)<10*60*1000)return;appTriedAt=Date.now();appVersion()});
 
 const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
 window.addEventListener("error",e=>{if(e.message&&!/ResizeObserver/.test(e.message))setStatus("⚠ erreur dans l'application : "+e.message+(e.lineno?" (ligne "+e.lineno+")":""),"#f99")});
