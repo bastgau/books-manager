@@ -3,7 +3,7 @@
 # Un scénario est en échec s'il ne rend aucune sortie (page plantée) ou signale une erreur ; ses valeurs sont à lire : voir tests/README.md.
 # Usage : tests/run-all.sh [nom-de-scénario ...]   (sans argument : tous)     Variables : voir run-scenario.sh ; SW=1 ajoute le test du service worker (CHROME requis)
 ONLY=("$@"); HERE="$(cd "$(dirname "$0")" && pwd)"; OUT="${TEST_OUT:-${TMPDIR:-/tmp}/livrotheque-tests}"; mkdir -p "$OUT"; FAIL=0
-SCENARIOS=("columns-and-form gh" "locations gh" "book-ids ids" "github-log ids" "offline-mode offm 120000" "update-link offm" "conditional-read etag" "stale-page stale" "first-sync first" "network-down off" "footer-versions ver" "edit-during-sync editsync" "push-race editsync" "large-file large" "conflict-on-push editsync" "search gh" "covers covers" "version-file editsync" "auto-complete editsync 120000" "version-log editsync")
+SCENARIOS=("columns-and-form gh" "locations gh" "book-ids ids" "github-log ids" "offline-mode offm 120000" "update-link offm" "conditional-read etag" "stale-page stale" "first-sync first" "network-down off" "footer-versions ver" "edit-during-sync editsync" "push-race editsync" "large-file large" "conflict-on-push editsync" "search gh" "covers covers" "version-file editsync" "auto-complete editsync 120000" "version-log editsync" "version-on-return editsync")
 echo "##### Tests unitaires"
 node "$HERE/unit/ids-and-csv.js" | tail -4 || FAIL=1
 node "$HERE/unit/share-link.js" | tail -3 || FAIL=1
