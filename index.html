@@ -363,7 +363,9 @@ const ck=()=>KEY+"."+(lib()||"local");
 let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, curRef=null;
 const $=id=>document.getElementById(id);
 let editSeq=0;   // counts local changes: an upload only marks as sent the changes made before it started
-const save=()=>{editSeq++;searchCache=new WeakMap();try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
+/* saveLocal: browser storage only, marked "to send", no upload started (long batches); save: the same, then an upload */
+const saveLocal=()=>{editSeq++;searchCache=new WeakMap();try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1))};
+const save=()=>{saveLocal();scheduleSync()};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));   // ' too: safe in single-quoted attributes
 const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
 const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
@@ -673,20 +675,25 @@ $("bAuto").onclick=async()=>{
   const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages)).map(b=>({id:b.id,obj:b,isbn:b.isbn}));
   if(!todo.length)return alert("Rien à compléter : tous les livres avec ISBN ont déjà résumé et pages.");
   if(!confirm(`Interroger Open Library / Google Books pour ${todo.length} livres ? (les champs déjà remplis ne sont pas modifiés)`))return;
-  const p=$("prog");p.style.display="block";let ok=0;
-  for(let n=0;n<todo.length;n++){
-    p.textContent=`Complétion ${n+1}/${todo.length} — ${ok} complétés`;
-    const res=await lookup(todo[n].isbn),b=books[locate(todo[n])];
-    if(b){const before=JSON.stringify(b);for(const c of res) applyTo(b,c,false);if(JSON.stringify(b)!==before)ok++}
-    if(n%10===9)save();
-    await new Promise(r=>setTimeout(r,250));
-  }
+  /* 3 books at a time (polite with Open Library, Google Books and Sudoc); results kept on the device every 10 books, one upload at the end */
+  const p=$("prog");p.style.display="block";let ok=0,done=0,next=0;
+  p.textContent=`Complétion 0/${todo.length}`;
+  const worker=async()=>{
+    while(next<todo.length){
+      const t=todo[next++],res=await lookup(t.isbn),b=books[locate(t)];
+      if(b){const before=JSON.stringify(b);for(const c of res) applyTo(b,c,false);if(JSON.stringify(b)!==before)ok++}
+      if(++done%10===0)saveLocal();
+      p.textContent=`Complétion ${done}/${todo.length} — ${ok} complétés`;
+      await new Promise(r=>setTimeout(r,250));
+    }
+  };
+  await Promise.all([worker(),worker(),worker()]);
   save();render();p.textContent=`Terminé : ${ok} livres complétés sur ${todo.length}.`;setTimeout(()=>p.style.display="none",5000);
 };
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:46:05Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:47:21Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
