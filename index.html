@@ -293,13 +293,14 @@ function parseCsv(buf){
   const u=new Uint8Array(buf), lines=[]; let s=0;
   for(let i=0;i<=u.length;i++) if(i===u.length||u[i]===10){ if(i>s) lines.push(decodeLine(u.subarray(s,i)).replace(/\r$/,"")); s=i+1; }
   if(lines.length&&lines[0].charCodeAt(0)===0xFEFF) lines[0]=lines[0].slice(1);
+  if(!lines.length)return [];                                  // fichier vide : aucune ligne (et non une erreur)
   const head=lines.shift().split("\t").map(h=>h.replace(/^"|"$/g,"").trim());
   return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>x.replace(/^"|"$/g,""));const o={};
     COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});o.isbn=cleanIsbn(o.isbn);o.a_garder=/^(oui|non)$/i.test(o.a_garder)?o.a_garder.toLowerCase():"";return o});
 }
-function toCsv(){
+function toCsv(list=books){
   const f=v=>'"'+String(v??"").replace(/[\t\r\n]+/g," ")+'"';
-  return "﻿"+[COLS.map(([k])=>f(k)).join("\t"),...books.map(b=>COLS.map(([k])=>f(b[k])).join("\t"))].join("\r\n");
+  return "﻿"+[COLS.map(([k])=>f(k)).join("\t"),...list.map(b=>COLS.map(([k])=>f(b[k])).join("\t"))].join("\r\n");
 }
 
 /* ---------- Affichage ---------- */
@@ -425,10 +426,8 @@ $("file").onchange=async e=>{
   if(books.length&&!confirm(`Remplacer les ${books.length} livres actuels par les ${rows.length} du fichier ?`))return;
   books=rows;save();render();e.target.value="";
 };
-$("bExport").onclick=()=>{
-  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([toCsv()],{type:"text/csv;charset=utf-8"}));
-  a.download="books-nicole.csv";a.click();
-};
+function downloadCsv(text,name){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));a.download=name;a.click()}
+$("bExport").onclick=()=>downloadCsv(toCsv(),"books-nicole.csv");
 
 /* ---------- Recherche en ligne : Open Library + Google Books (aucune clé requise) ---------- */
 const jget=async u=>{const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()};
@@ -459,6 +458,11 @@ function dupIndexes(){
   const s=new Set();m.forEach(a=>{if(a.length>1)a.forEach(i=>s.add(i))});return s;
 }
 function findDups(v,self){const ks=new Set(dupKeys(v));return books.filter((b,i)=>i!==self&&dupKeys(b).some(k=>ks.has(k)))}
+/* Liste locale = livres présents sur l'appareil alors qu'aucune bibliothèque n'est ouverte. Ouvrir ou créer une bibliothèque la masque : on la sauvegarde ou on l'importe. */
+const localOnly=()=>(!lib()&&books.length)?books.slice():[];
+function offerLocalBackup(list){
+  if(list.length&&confirm("Cet appareil contient une liste locale de "+list.length+" livres, non synchronisée : elle ne sera plus affichée.\n\nOK = la télécharger maintenant en CSV (sauvegarde)\nAnnuler = continuer sans la télécharger"))downloadCsv(toCsv(list),"liste-locale.csv");
+}
 const gKey=()=>localStorage.getItem("livrotheque.gkey")||"";
 $("bKey").onclick=()=>{const k=prompt("Clé API Google Books (laisser vide pour désactiver Google Books) :",gKey());if(k!==null){localStorage.setItem("livrotheque.gkey",k.trim());alert(k.trim()?"Clé enregistrée.":"Google Books désactivé.")}};
 /* Google Books renvoie des erreurs passagères (503, parfois 403 pendant un changement de réglage) : plusieurs essais, et un état affiché à l'utilisateur */
@@ -572,7 +576,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T09:13:04Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T10:12:36Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -736,8 +740,10 @@ async function pull(){
     const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
     if(dirty&&!confirm("Des modifications locales non synchronisées existent ET le dépôt a changé.\nOK = garder la version du dépôt (perd les modifs locales)\nAnnuler = garder la version locale (écrase le dépôt au prochain enregistrement)")){
       localStorage.setItem(SK+lib()+".sha",f.sha);scheduleSync();return}
-    books=parseCsv(b64dec(f.content));
-    localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");
+    const incoming=parseCsv(b64dec(f.content));
+    if(!incoming.length&&books.length){setStatus("☁ le dépôt renvoie une liste vide : votre copie locale ("+books.length+" livres) est conservée","#f99");return}
+    books=incoming;
+    localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));
     render();setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===404){setStatus("☁ fichier absent : il sera créé","#ffd");localStorage.removeItem(SK+lib()+".sha");if(books.length)scheduleSync()}
@@ -755,10 +761,14 @@ async function push(){
   if(syncing){scheduleSync();return}
   /* page restée dans une ancienne version : elle pourrait réécrire un ancien format de fichier. Les modifications restent gardées (elles repartent après le rechargement). */
   if(await pageIsStale()){setStatus("☁ version périmée : rechargez la page (cliquez ici) — vos modifications sont gardées et seront envoyées ensuite","#f99");return}
+  /* liste vide ou réduite de moitié par rapport à la dernière version connue du dépôt : confirmation explicite */
+  {const n=+localStorage.getItem(SK+lib()+".count")||0;
+   if(n>0&&(books.length===0||(n>=20&&books.length<n/2))&&!confirm("La liste compte "+books.length+" livre"+(books.length>1?"s":"")+" alors que la bibliothèque en contenait "+n+".\n\nEnvoyer cette liste remplacerait les "+n+" livres du dépôt.\n\nOK = envoyer quand même\nAnnuler = ne rien envoyer")){
+     setStatus("☁ envoi annulé : "+books.length+" livre(s) au lieu de "+n+" — rien n'a été modifié dans le dépôt","#f99");return}}
   syncing=true;setStatus("☁ envoi…");
   try{
     const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
-    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
       if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
@@ -846,12 +856,14 @@ $("sOpen").onclick=async()=>{
   if(!UUID.test(id))return sMsg("UUID invalide.",1);
   sMsg("Vérification…");
   try{await gh("GET",null,id)}catch(e){return sMsg(e.status===404?"Aucune bibliothèque avec cet UUID.":"Erreur GitHub ("+e.message+")",1)}
+  const loc=localOnly();
   await flushCurrent();useLib(id);fillMeta(await loadMeta(id));updateLabel();await pull();$("dlgS").close();
+  offerLocalBackup(loc);
 };
 $("sCreate").onclick=async()=>{
   if(!saveAccess())return;
   if(!$("nName").value.trim())return sMsg("Donnez un nom à la nouvelle bibliothèque.",1);
-  const id=crypto.randomUUID(),meta=metaJson("n");sMsg("Création…");
+  const loc=localOnly(),id=crypto.randomUUID(),meta=metaJson("n");sMsg("Création…");
   try{
     const r=await gh("PUT",{message:"chore: create library "+id,content:b64enc(emptyCsv()),branch:cfg().branch},id);
     await gh("PUT",{message:"chore: add library metadata "+id,content:b64enc(meta),branch:cfg().branch},id,"meta");
@@ -860,6 +872,10 @@ $("sCreate").onclick=async()=>{
     localStorage.setItem(metaKey(id),meta);updateLabel();
     ["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(getMeta());refreshCur();setStatus("☁ synchronisé");
     sMsg("Bibliothèque créée et ouverte. Notez son UUID : il est indispensable pour la rouvrir sur un autre appareil.");
+    if(loc.length){
+      if(confirm("Cet appareil contient une liste locale de "+loc.length+" livres.\n\nOK = les importer dans la nouvelle bibliothèque\nAnnuler = laisser la bibliothèque vide")){books=loc;save();render();sMsg("Bibliothèque créée avec vos "+loc.length+" livres (envoi en cours).")}
+      else offerLocalBackup(loc);
+    }
   }catch(e){sMsg("Création impossible ("+e.message+")",1)}
 };
 $("sMeta").onclick=async()=>{
@@ -877,6 +893,8 @@ window.addEventListener("beforeunload",e=>{if(localStorage.getItem(SK+lib()+".di
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
 
 const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
+window.addEventListener("error",e=>{if(e.message&&!/ResizeObserver/.test(e.message))setStatus("⚠ erreur dans l'application : "+e.message+(e.lineno?" (ligne "+e.lineno+")":""),"#f99")});
+window.addEventListener("unhandledrejection",e=>setStatus("⚠ erreur dans l'application : "+((e.reason&&e.reason.message)||e.reason),"#f99"));
 window.addEventListener("resize",setHH);setHH();
 if(window.matchMedia){const mq=matchMedia("(max-width:900px)");(mq.addEventListener?mq.addEventListener.bind(mq,"change"):mq.addListener.bind(mq))(()=>render())}
 /* ---------- Lien de configuration (dépôt, jeton, bibliothèque) valable 24 h ----------
@@ -924,6 +942,7 @@ async function applyCfgHash(){
   if(Date.now()>o.exp){alert("Ce lien de configuration a expiré (il est valable 24 h). Demandez-en un nouveau.");return goApp()}
   const had=cfg().repo&&lib();
   if(!confirm("Appliquer la configuration reçue ?\n\nDépôt : "+o.repo+"\nBibliothèque : "+o.lib+"\nLien valable jusqu'au "+fmtDT(o.exp)+(had?"\n\n⚠ Elle REMPLACE la configuration actuelle (dépôt "+cfg().repo+", bibliothèque "+lib().slice(0,8)+"…), y compris le jeton. Les modifications non envoyées seront d'abord enregistrées.":"")))return goApp();
+  offerLocalBackup(localOnly());
   if(had)await flushCurrent();                          // modifications en attente de la bibliothèque actuelle : envoyées avec l'ancien accès
   localStorage.setItem(SK+"repo",o.repo);localStorage.setItem(SK+"token",o.token);if(o.branch)localStorage.setItem(SK+"branch",o.branch);if(o.gkey)localStorage.setItem("livrotheque.gkey",o.gkey);
   useLib(o.lib);
