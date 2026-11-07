@@ -648,7 +648,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T19:38:29Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T19:39:48Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -864,7 +864,8 @@ function renderGhLog(){
     return '<div class="ge"><span class="muted">'+esc(when)+'</span><span><code>'+esc(e.m)+'</code> '+esc(e.w)+(e.n>1?' <span class="muted">('+e.n+' requêtes)</span>':"")+'</span><span class="g-'+cls+'">'+esc(txt)+'</span><span class="muted">'+(e.n>1?"max ":"")+esc(dur)+'</span></div>'}).join("")+'</div>':"<span class='muted'>Aucune requête enregistrée sur cet appareil.</span>";
 }
 async function gh(method,body,id,kind,etag){
-  const c=cfg(id,kind),t0=Date.now(),H={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
+  /* reads use the "object" media type: documented by GitHub for files up to 100 MB (above 1 MB, content is "" and encoding "none": see fileBytes) */
+  const c=cfg(id,kind),t0=Date.now(),H={Authorization:"Bearer "+c.token,Accept:method==="GET"?"application/vnd.github.object+json":"application/vnd.github+json"};
   if(etag)H["If-None-Match"]=etag;                       // lecture conditionnelle : GitHub répond 304 (sans contenu) si le fichier n'a pas changé
   const r=await ghFetch(kind==="meta"?"informations de la bibliothèque":"base (CSV)",`https://api.github.com/repos/${c.repo}/contents/${encodeURI(c.path)}`+(method==="GET"?`?ref=${encodeURIComponent(c.branch)}`+(etag?"":`&t=${Date.now()}`):""),
     {method,headers:H,body:body&&JSON.stringify(body),cache:etag?"no-store":undefined});
@@ -876,6 +877,17 @@ async function gh(method,body,id,kind,etag){
 /* ETag de la dernière lecture complète de la base, valable seulement pour le format de fichier courant (sinon relecture complète) */
 const etagKey=()=>SK+lib()+".etag",SCHEMA=CSV_COLS.join(",");
 const getEtag=()=>{try{const o=JSON.parse(localStorage.getItem(etagKey()));return o&&o.s===SCHEMA&&o.e&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".sha")?o.e:""}catch(e){return ""}};
+/* Bytes of a file read with gh("GET"). Above 1 MB the Contents API returns no content: the bytes then come from the Git blob of
+   the same sha (raw, up to 100 MB). A failed or empty read throws, so a large file is never taken for an empty library. */
+async function fileBytes(f){
+  if(f.content)return b64dec(f.content);
+  if(f.encoding!=="none"&&!f.size)return new ArrayBuffer(0);   // really empty file
+  const c=cfg(),r=await ghFetch("base (CSV > 1 Mo)",`https://api.github.com/repos/${c.repo}/git/blobs/${encodeURIComponent(f.sha)}`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}});
+  if(!r.ok)throw new Error("fichier de plus de 1 Mo illisible, erreur "+r.status);   // no .status: must not be read as "file absent" (404)
+  const buf=await r.arrayBuffer();
+  if(!buf.byteLength)throw new Error("fichier de plus de 1 Mo reçu vide");
+  return buf;
+}
 async function pull(){
   if(!cfg().repo||!cfg().token||!lib())return;
   if(isOff()){offStatus();return}
@@ -890,7 +902,7 @@ async function pull(){
      sinon on relit le fichier (la copie locale peut avoir été lue par une ancienne version de la page, sans toutes les colonnes) */
     if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".dirty")==="1"){scheduleSync();return}
     const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
-    const incoming=parseCsv(b64dec(f.content)),dupFixed=fixDupIds(incoming);
+    const incoming=parseCsv(await fileBytes(f)),dupFixed=fixDupIds(incoming);
     if(!incoming.length&&books.length){setStatus("☁ le dépôt renvoie une liste vide : votre copie locale ("+books.length+" livres) est conservée","#f99");return}
     if(dirty){
       const ch=await resolveConflict(incoming);
