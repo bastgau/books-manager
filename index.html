@@ -707,10 +707,13 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T21:12:22Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T21:36:52Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_COMMIT="";   /* commit of the published copy (7 characters), written by tools/stamp.sh; empty when the page comes straight from the repository */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
-let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
+/* appInfo: newest published version (date and commit), shown only when it is newer than this page; appCheck: "" (not read yet), "ok" or "fail" */
+let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0,appCheck="";
+try{localStorage.removeItem("livrotheque.appinfo")}catch(e){}   // value kept by earlier versions: it showed an old published version as if it were the loaded one
 const renderVer=()=>{
   /* dernières versions connues, gardées sur l'appareil : affichées aussi hors ligne ou au démarrage sans réseau */
   const built=new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}),db=dbInfo||(lib()&&localStorage.getItem(SK+lib()+".dbinfo"))||"";
@@ -720,8 +723,8 @@ const renderVer=()=>{
     $("verDb").textContent="Base : "+(lib()?(db?"dernière synchro "+db:"jamais synchronisée")+" · "+(dirty?(n?n+" modification"+(n>1?"s":"")+" locale"+(n>1?"s":""):"modifications locales")+" non envoyée"+(n>1?"s":""):"aucune modification locale"):"locale, non synchronisée");
     return;
   }
-  const app=appInfo||localStorage.getItem("livrotheque.appinfo")||"";
-  $("verApp").innerHTML="Application : "+esc(app||built)+(appStale?` <a href="#" id="verUpd" style="color:#ffd27a;font-weight:600">⚠ nouvelle version disponible — mettre à jour</a>`:"");
+  /* always the version of the loaded page; the published one only when it is newer (link to update) */
+  $("verApp").innerHTML="Application : "+esc(built+" ("+(APP_COMMIT||"non publiée")+")")+(appStale?` <a href="#" id="verUpd" style="color:#ffd27a;font-weight:600">⚠ nouvelle version disponible${appInfo?" du "+esc(appInfo):""} — mettre à jour</a>`:appCheck==="fail"?' <span style="opacity:.7">(vérification de mise à jour impossible)</span>':"");
   $("verDb").textContent="Base : "+(db||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
 };
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
@@ -733,14 +736,14 @@ async function appVersion(){
     const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"}),v=r.ok?await r.json():null;
     if(v&&v.build&&!isNaN(new Date(v.build))){
       appInfo=new Date(v.build).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+(v.commit?" ("+String(v.commit).slice(0,7)+")":"");
-      localStorage.setItem("livrotheque.appinfo",appInfo);appStale=new Date(v.build)>new Date(APP_BUILD);staleCheckedAt=Date.now();renderVer();return;
+      appStale=new Date(v.build)>new Date(APP_BUILD);appCheck="ok";staleCheckedAt=Date.now();renderVer();return;
     }
   }catch(e){}
   try{
     const r=await ghFetch("version publiée de l'application",`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=1`);
     const [x]=r.ok?await r.json():[];
-    if(x){appInfo=fmtCommit(x);localStorage.setItem("livrotheque.appinfo",appInfo);appStale=new Date(x.commit.committer.date)-new Date(APP_BUILD)>5*60*1000;staleCheckedAt=Date.now()}
-  }catch(e){}
+    if(x){appInfo=fmtCommit(x);appStale=new Date(x.commit.committer.date)-new Date(APP_BUILD)>5*60*1000;appCheck="ok";staleCheckedAt=Date.now()}else appCheck="fail";
+  }catch(e){appCheck="fail"}
   renderVer();
 }
 /* La version publiée est relue au plus toutes les 10 minutes avant un envoi. Sans réponse de GitHub, on n'empêche rien (un réseau coupé ne doit pas bloquer l'enregistrement). */
