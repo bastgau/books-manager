@@ -15,4 +15,6 @@ sed -i -E "s/^const APP_BUILD=\"[^\"]*\"/const APP_BUILD=\"$T\"/" "$OUT/index.ht
 sed -i -E "s/^const BUILD = \"[^\"]*\"/const BUILD = \"$T\"/" "$OUT/sw.js"
 # a missing stamp would make every visitor see a stale page: fail loudly instead
 grep -q "^const APP_BUILD=\"$T\"" "$OUT/index.html" && grep -q "^const BUILD = \"$T\"" "$OUT/sw.js" || { echo "stamp not written" >&2; exit 1; }
+# version.json: read by the page (same site, no GitHub API rate limit) to tell whether a newer version is published
+printf '{"build":"%s","commit":"%s"}\n' "$T" "$(git -C "$ROOT" rev-parse HEAD)" > "$OUT/version.json"
 echo "stamped $T into $OUT"
