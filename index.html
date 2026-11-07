@@ -599,15 +599,22 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T11:09:33Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T11:11:52Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
 const renderVer=()=>{
   /* dernières versions connues, gardées sur l'appareil : affichées aussi hors ligne ou au démarrage sans réseau */
-  const app=appInfo||localStorage.getItem("livrotheque.appinfo")||"",db=dbInfo||(lib()&&localStorage.getItem(SK+lib()+".dbinfo"))||"",off=isOff()?" (hors ligne : dernière version connue)":"";
-  $("verApp").textContent="Application : "+(app||new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}))+(app&&off)+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"");
-  $("verDb").textContent="Base : "+(db?db+off:(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
+  const built=new Date(APP_BUILD).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}),db=dbInfo||(lib()&&localStorage.getItem(SK+lib()+".dbinfo"))||"";
+  if(isOff()){   /* hors ligne : versions de CET appareil (page chargée, dernière base synchronisée) et modifications locales en attente */
+    const n=lib()?pendN():0,dirty=lib()&&localStorage.getItem(SK+lib()+".dirty")==="1";
+    $("verApp").textContent="Application : "+built+" (version chargée sur cet appareil)";
+    $("verDb").textContent="Base : "+(lib()?(db?"dernière synchro "+db:"jamais synchronisée")+" · "+(dirty?(n?n+" modification"+(n>1?"s":"")+" locale"+(n>1?"s":""):"modifications locales")+" non envoyée"+(n>1?"s":""):"aucune modification locale"):"locale, non synchronisée");
+    return;
+  }
+  const app=appInfo||localStorage.getItem("livrotheque.appinfo")||"";
+  $("verApp").textContent="Application : "+(app||built)+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"");
+  $("verDb").textContent="Base : "+(db||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
 };
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
 async function appVersion(){
@@ -994,6 +1001,7 @@ async function applyCfgHash(){
 const pendKey=()=>SK+lib()+".pend";
 const pendN=()=>+localStorage.getItem(pendKey())||0;
 function offStatus(){
+  renderVer();
   if(!lib())return;
   const n=pendN();
   setStatus("⏸ hors ligne — "+(n?n+" modification"+(n>1?"s":"")+" en attente d'envoi":"aucune modification en attente"),"#ffd");
