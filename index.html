@@ -25,8 +25,7 @@ header label{font-size:13px;white-space:nowrap}
 .offsw.on{background:#f0a030;color:#2b1a10}.offsw.on i{background:#7a4a00}.offsw.on i::after{left:18px}
 .offsw input:focus-visible+i{outline:2px solid #fff;outline-offset:2px}
 #offHint{display:none;flex-basis:100%;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;background:#f0a03022;border:1px solid #f0a030;border-radius:6px;padding:5px 10px}
-#offHint button,#updHint button{padding:3px 10px;font-size:12px}
-#updHint{display:none;flex-basis:100%;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;background:#4caf5033;border:1px solid #4caf50;border-radius:6px;padding:5px 10px}
+#offHint button{padding:3px 10px;font-size:12px}
 #kBody ul{margin:2px 0 6px;padding-left:20px;font-size:13px}
 .sf{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;flex:1 1 auto}
 .sf input[type=search]{flex:0 1 420px;min-width:180px}
@@ -126,7 +125,6 @@ dialog h4{margin:14px 0 4px}
   <div class="brk"></div>
   <span id="info"></span>
   <div id="offHint"><span>📶 <span id="offWhy"></span> — passer en mode hors ligne pour économiser les données ?</span><button id="offGo">Passer hors ligne</button><button id="offLater" class="sec">Plus tard</button></div>
-  <div id="updHint"><span>🔄 Une nouvelle version de l'application est prête.</span><button id="updGo">Recharger</button></div>
   <input type="file" id="file" accept=".csv,.txt,.tsv" hidden>
 </header>
 <div id="ov"></div>
@@ -601,7 +599,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T12:00:27Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T12:12:24Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -749,7 +747,7 @@ let goTo=u=>location.replace(u);
 async function forceUpdate(){
   try{
     if("serviceWorker" in navigator)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
-    if(window.caches)for(const k of await caches.keys())if(k!=="livrotheque-flags")await caches.delete(k);
+    if(window.caches)for(const k of await caches.keys())await caches.delete(k);
   }catch(e){}
   window.__noPrompt=true;                                  // les modifications en attente restent sur l'appareil : pas de question au départ
   goTo(location.pathname+"?maj="+Date.now()+location.hash);
@@ -1030,10 +1028,8 @@ function offStatus(){
   const n=pendN();
   setStatus("⏸ hors ligne — "+(n?n+" modification"+(n>1?"s":"")+" en attente d'envoi":"aucune modification en attente"),"#ffd");
 }
-/* le service worker lit ce drapeau : en mode hors ligne, la page s'ouvre depuis la copie gardée sans attendre le réseau */
-function swFlag(on){if(!("caches" in window))return;caches.open("livrotheque-flags").then(c=>on?c.put(new URL("offline-flag",location.href).href,new Response("1")):c.delete(new URL("offline-flag",location.href).href)).catch(()=>{})}
 function applyOffUi(){
-  const on=isOff();swFlag(on);
+  const on=isOff();
   $("offSw").checked=on;$("offTxt").textContent=on?"Hors ligne":"En ligne";$("offLab").classList.toggle("on",on);
   $("offLab").title=on?"Mode hors ligne : aucun échange avec le dépôt, les modifications restent sur cet appareil. Cliquez pour revenir en ligne et les envoyer.":"Passer en mode hors ligne : économise les données, les modifications restent sur cet appareil et partent au retour en ligne (les recherches d'infos restent possibles).";
 }
@@ -1104,11 +1100,8 @@ updateLabel();
 renderVer();
 appVersion();
 applyCfgHash().then(redirected=>{if(!redirected){pull();if(isOff())offStatus()}});
-if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});
-if("serviceWorker" in navigator){   // le service worker a téléchargé une nouvelle version pendant qu'il servait la copie gardée
-  navigator.serviceWorker.addEventListener("message",e=>{if(e.data&&e.data.type==="update-ready"){$("updHint").style.display="flex";setHH()}});
-  $("updGo").onclick=()=>forceUpdate();
-}   // page réouvrable sans réseau
+/* service worker minimal (ouverture de la page sans réseau) : enregistré après la fin du chargement, pour ne rien ajouter à la page pendant qu'elle se charge */
+if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))window.addEventListener("load",()=>setTimeout(()=>navigator.serviceWorker.register("sw.js").catch(()=>{}),3000));
 if(!books.length&&!lib()&&!isOff())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
 </body>
