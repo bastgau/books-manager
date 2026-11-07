@@ -601,7 +601,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T11:44:48Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T11:51:01Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -760,20 +760,29 @@ async function dbVersion(){
 const setStatus=(t,c)=>{$("sync").textContent=t;$("sync").style.color=c||"#fff";$("sync").style.cursor=/erreur d'envoi|version périmée/.test(t)?"pointer":"";$("sync").style.textDecoration=/erreur d'envoi|version périmée/.test(t)?"underline":"";if(/synchronisé|à jour/.test(t)){clearTimeout(verTimer);verTimer=setTimeout(()=>{dbVersion();refreshMeta()},600)}};
 const b64enc=s=>{const u=new TextEncoder().encode(s);let r="";for(let i=0;i<u.length;i+=0x8000)r+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(r)};
 const b64dec=s=>Uint8Array.from(atob(s.replace(/\s/g,"")),c=>c.charCodeAt(0)).buffer;
-async function gh(method,body,id,kind){
-  const c=cfg(id,kind),t0=Date.now();
-  const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/${encodeURI(c.path)}`+(method==="GET"?`?ref=${encodeURIComponent(c.branch)}&t=${Date.now()}`:""),
-    {method,headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"},body:body&&JSON.stringify(body)});
+async function gh(method,body,id,kind,etag){
+  const c=cfg(id,kind),t0=Date.now(),H={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
+  if(etag)H["If-None-Match"]=etag;                       // lecture conditionnelle : GitHub répond 304 (sans contenu) si le fichier n'a pas changé
+  const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/${encodeURI(c.path)}`+(method==="GET"?`?ref=${encodeURIComponent(c.branch)}`+(etag?"":`&t=${Date.now()}`):""),
+    {method,headers:H,body:body&&JSON.stringify(body),cache:etag?"no-store":undefined});
   const dt=Date.now()-t0;if(dt>8000)suggestOffline("GitHub répond lentement ("+Math.round(dt/1000)+" s)");   // connexion faible : on propose, sans rien imposer
+  if(r.status===304)return {notModified:true};
   if(!r.ok){const e=new Error(r.status);e.status=r.status;throw e}
-  return r.json();
+  const j=await r.json();j._etag=r.headers.get("ETag")||"";return j;
 }
+/* ETag de la dernière lecture complète de la base, valable seulement pour le format de fichier courant (sinon relecture complète) */
+const etagKey=()=>SK+lib()+".etag",SCHEMA=COLS.map(c=>c[0]).join(",");
+const getEtag=()=>{try{const o=JSON.parse(localStorage.getItem(etagKey()));return o&&o.s===SCHEMA&&o.e&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".sha")?o.e:""}catch(e){return ""}};
 async function pull(){
   if(!cfg().repo||!cfg().token||!lib())return;
   if(isOff()){offStatus();return}
   setStatus("☁ lecture…");
   try{
-    const f=await gh("GET");
+    const f=await gh("GET",null,undefined,undefined,getEtag());
+    if(f.notModified){                                   // le dépôt n'a pas changé depuis ma dernière lecture : rien à télécharger, la copie locale est à jour
+      if(localStorage.getItem(SK+lib()+".dirty")==="1")scheduleSync();else setStatus("☁ synchronisé");
+      return;
+    }
     /* même empreinte que la dernière synchro : on garde la copie locale seulement si elle contient des modifications non envoyées ;
      sinon on relit le fichier (la copie locale peut avoir été lue par une ancienne version de la page, sans toutes les colonnes) */
     if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".dirty")==="1"){scheduleSync();return}
@@ -787,6 +796,7 @@ async function pull(){
     }
     books=incoming;
     localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".pend","0");localStorage.setItem(SK+lib()+".count",String(books.length));
+    if(f._etag)localStorage.setItem(etagKey(),JSON.stringify({e:f._etag,s:SCHEMA}));
     render();setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===404){setStatus("☁ fichier absent : il sera créé","#ffd");localStorage.removeItem(SK+lib()+".sha");if(books.length)scheduleSync()}
@@ -813,7 +823,7 @@ async function push(){
   syncing=true;setStatus("☁ envoi…");
   try{
     const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
-    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));localStorage.setItem(SK+lib()+".pend","0");retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));localStorage.setItem(SK+lib()+".pend","0");localStorage.removeItem(etagKey());retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
   }catch(e){
     if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
       if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
