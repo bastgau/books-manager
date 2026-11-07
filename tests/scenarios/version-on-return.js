@@ -12,7 +12,7 @@ window.__pending=(async function(){try{
   staleCheckedAt=Date.now()-2*MIN;tried(0);
   o["A_retour_2_min_après_la_dernière_vérification"]={lectures:await back()};
   staleCheckedAt=Date.now()-11*MIN;tried(0);
-  o["B_retour_11_min_après"]={lectures:await back(),page_périmée:appStale,alerte:/nouvelle version disponible/.test(q("#verApp").textContent)};
+  ghLog=[];o["B_retour_11_min_après"]={lectures:await back(),page_périmée:appStale,alerte:/nouvelle version disponible/.test(q("#verApp").textContent),dans_le_journal:ghLog.some(function(e){return e.w==="version publiée (site)"})};
   staleCheckedAt=0;fail=true;tried(0);
   o["C_vérification_en_échec"]={premier_retour:await back(),retour_suivant:await back()};
   fail=false;staleCheckedAt=0;tried(0);localStorage.setItem("livrotheque.offline","1");

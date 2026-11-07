@@ -707,7 +707,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T22:23:53Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T22:49:26Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_COMMIT="";   /* commit of the published copy (7 characters), written by tools/stamp.sh; empty when the page comes straight from the repository */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
@@ -733,7 +733,7 @@ async function appVersion(){
   /* version.json is written next to the page by the publication workflow (tools/stamp.sh): same site, no rate limit.
      Without it (site published straight from the branch), the last commit of index.html is read through the GitHub API. */
   try{
-    const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"}),v=r.ok?await r.json():null;
+    const r=await ghFetch("version publiée (site)","version.json?t="+Date.now(),{cache:"no-store"}),v=r.ok?await r.json():null;   // logged in "Requêtes GitHub" (label and status only)
     if(v&&v.build&&!isNaN(new Date(v.build))){
       appInfo=new Date(v.build).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+(v.commit?" ("+String(v.commit).slice(0,7)+")":"");
       appStale=new Date(v.build)>new Date(APP_BUILD);appCheck="ok";staleCheckedAt=Date.now();renderVer();return;
