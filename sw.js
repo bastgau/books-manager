@@ -3,7 +3,7 @@
    - Réseau coupé : copie de la page gardée à l'installation.
    - Tout le reste (GitHub, sources d'infos, manifeste, icônes) n'est pas intercepté.
    L'installation se refait quand ce fichier change : le repère BUILD ci-dessous est mis à jour à chaque publication de l'application. */
-const BUILD = "2026-11-07T15:45:07Z";
+const BUILD = "2026-11-07T19:37:17Z";
 const CACHE = "livrotheque-shell-" + BUILD;
 const SHELL = ["./", "index.html"];
 self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting())));

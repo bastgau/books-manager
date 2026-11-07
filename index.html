@@ -335,7 +335,7 @@ const lib=()=>localStorage.getItem(SK+"lib")||"";
 const OFFK="livrotheque.offline";
 const isOff=()=>localStorage.getItem(OFFK)==="1";
 const ck=()=>KEY+"."+(lib()||"local");
-let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, cur=null;
+let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, curRef=null;
 const $=id=>document.getElementById(id);
 const save=()=>{try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -422,9 +422,15 @@ document.addEventListener("click",e=>{if(ovPinned&&!e.target.closest("#ov"))hide
 document.addEventListener("keydown",e=>{if(e.key==="Escape")hideOv()});
 $("thead").onclick=e=>{const k=e.target.closest("th")?.dataset.k;if(!k)return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render()};
 $("tbody").addEventListener("click",e=>{const tr=e.target.closest("tr[data-i]");if(tr&&!e.target.closest(".rs"))view(+tr.dataset.i)});
-let vIdx=null;
+/* A book open in a dialog is kept by id, not by position: a sync can replace the list while the dialog is open.
+   The copy of its values (snap) tells whether another device changed it in the meantime.
+   A book without a valid id (local list, test data) is found by object identity, which holds until a sync replaces the list. */
+const bookRef=i=>i==null||!books[i]?null:{id:books[i].id,obj:books[i],snap:{...books[i]}};
+const locate=r=>!r?-1:isBookId(r.id)?books.findIndex(b=>b.id===r.id):books.indexOf(r.obj);
+const GONE="Ce livre a été supprimé sur un autre appareil : rien n'a été modifié.";
+let vRef=null;
 function view(i){
-  vIdx=i;const b=books[i];
+  vRef=bookRef(i);const b=books[i];
   const f=(l,v)=>v?`<div><span class="muted">${l}</span> ${esc(v)}</div>`:"";
   $("vBody").innerHTML=`<div style="display:flex;gap:16px;align-items:flex-start">
     <div style="min-width:96px">${coverImg(b,"M","cvl")}</div>
@@ -437,14 +443,14 @@ function view(i){
   $("dlgV").showModal();
 }
 $("vClose").onclick=()=>$("dlgV").close();
-$("vOk").onclick=()=>{books[vIdx].a_verifier="";save();render();$("dlgV").close()};
-$("vEdit").onclick=()=>{$("dlgV").close();edit(vIdx)};
+$("vOk").onclick=()=>{const i=locate(vRef);$("dlgV").close();if(i<0){render();return alert(GONE)}books[i].a_verifier="";save();render()};
+$("vEdit").onclick=()=>{const i=locate(vRef);$("dlgV").close();if(i<0){render();return alert(GONE)}edit(i)};
 $("q").addEventListener("input",render);
 ["fNoIsbn","fNoRes","fUnread","fCheck","fDup"].forEach(id=>$(id).addEventListener("input",render)); /* un filtre ne change pas l'état plié/déplié des lettres */
 
 /* ---------- Édition ---------- */
 function edit(i){
-  cur=i; const b=i==null?{}:books[i];
+  curRef=bookRef(i); const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
   $("form").innerHTML=COLS.filter(([k])=>k!=="a_verifier").map(([k,l])=>`<label>${l}</label>`+(k==="localisation"?`<div class="locrow"><select id="f_localisation">${locOptions(b.localisation)}</select><button type="button" id="locAddForm" class="sec" title="Créer une nouvelle localisation pour cette bibliothèque">+</button></div>`:k==="a_garder"?`<select id="f_a_garder"><option value="">—</option><option value="oui"${b.a_garder==="oui"?" selected":""}>Oui</option><option value="non"${b.a_garder==="non"?" selected":""}>Non</option></select>`:k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
   $("form").insertAdjacentHTML("beforeend",`<div id="fPrev" style="display:none;grid-column:2"></div><label>À vérifier</label><input type="checkbox" id="f_a_verifier" ${b.a_verifier?"checked":""}>`);
@@ -466,15 +472,22 @@ const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,k==="a_verifier"?($("f_
 $("bAdd").onclick=()=>edit(null);
 $("bCancel").onclick=()=>$("dlg").close();
 $("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.titleCase(v.titre);if(v.auteur&&(TX.mostlyUpper(v.auteur)||v.auteur===v.auteur.toLowerCase()))v.auteur=TX.authorCase(v.auteur);
+  /* edited book: find it again by id; it may have been deleted or changed on another device while the form was open */
+  let idx=-1;
+  if(curRef){
+    idx=locate(curRef);
+    if(idx<0){if(!confirm("Ce livre a été modifié ou supprimé sur un autre appareil pendant l'édition.\n\nOK = l'enregistrer comme nouveau livre\nAnnuler = abandonner vos changements")){$("dlg").close();render();return}}
+    else if(!sameRow(books[idx],curRef.snap)&&!confirm("Ce livre a été modifié sur un autre appareil pendant l'édition.\n\nOK = le remplacer par votre version\nAnnuler = garder la version de l'autre appareil")){$("dlg").close();render();return}
+  }
   /* doublon possible : on prévient si le livre est nouveau ou si son ISBN / auteur / titre a changé */
-  const before=cur==null?null:books[cur];
+  const before=idx<0?null:books[idx];
   if(!before||before.isbn!==v.isbn||before.auteur!==v.auteur||before.titre!==v.titre){
-    const d=findDups(v,cur);
+    const d=findDups(v,idx<0?null:idx);
     if(d.length&&!confirm("Doublon possible :\n"+d.slice(0,5).map(b=>"• "+b.auteur+" — "+b.titre+(b.isbn?" ("+b.isbn+")":"")).join("\n")+(d.length>5?"\n… et "+(d.length-5)+" autre(s)":"")+"\n\nEnregistrer quand même ?"))return;
   }
-  v.id=before?(before.id||""):createBookId();   // édition : identifiant conservé ; création : nouvel identifiant
-  if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
-$("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
+  v.id=before?(before.id||""):curRef&&isBookId(curRef.id)?curRef.id:createBookId();   // édition : identifiant conservé (aussi si le livre est ré-enregistré après une suppression ailleurs) ; création : nouvel identifiant
+  if(idx<0)books.push(v);else books[idx]=v;save();$("dlg").close();render()};
+$("bDel").onclick=()=>{if(!confirm("Supprimer ce livre ?"))return;const i=locate(curRef);$("dlg").close();if(i<0){render();return alert(GONE)}books.splice(i,1);save();render()};
 
 /* ---------- Import / export ---------- */
 $("bImport").onclick=()=>{$("dlgS").close();$("file").click()};
@@ -617,15 +630,15 @@ $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
 /* complétion automatique en lot */
 $("bAuto").onclick=async()=>{
   $("dlgS").close();
-  const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages));
+  /* kept by id: each result is written into the book as it is when the answer arrives (a sync may have replaced the list meanwhile) */
+  const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages)).map(b=>({id:b.id,obj:b,isbn:b.isbn}));
   if(!todo.length)return alert("Rien à compléter : tous les livres avec ISBN ont déjà résumé et pages.");
   if(!confirm(`Interroger Open Library / Google Books pour ${todo.length} livres ? (les champs déjà remplis ne sont pas modifiés)`))return;
   const p=$("prog");p.style.display="block";let ok=0;
   for(let n=0;n<todo.length;n++){
     p.textContent=`Complétion ${n+1}/${todo.length} — ${ok} complétés`;
-    const res=await lookup(todo[n].isbn);const before=JSON.stringify(todo[n]);
-    for(const c of res) applyTo(todo[n],c,false);
-    if(JSON.stringify(todo[n])!==before)ok++;
+    const res=await lookup(todo[n].isbn),b=books[locate(todo[n])];
+    if(b){const before=JSON.stringify(b);for(const c of res) applyTo(b,c,false);if(JSON.stringify(b)!==before)ok++}
     if(n%10===9)save();
     await new Promise(r=>setTimeout(r,250));
   }
@@ -634,7 +647,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T15:45:07Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T19:37:17Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;

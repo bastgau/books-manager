@@ -3,7 +3,7 @@
 # Un scénario est en échec s'il ne rend aucune sortie (page plantée) ou signale une erreur ; ses valeurs sont à lire : voir tests/README.md.
 # Usage : tests/run-all.sh [nom-de-scénario ...]   (sans argument : tous)     Variables : voir run-scenario.sh ; SW=1 ajoute le test du service worker (CHROME requis)
 ONLY=("$@"); HERE="$(cd "$(dirname "$0")" && pwd)"; OUT="${TEST_OUT:-${TMPDIR:-/tmp}/livrotheque-tests}"; mkdir -p "$OUT"; FAIL=0
-SCENARIOS=("columns-and-form gh" "locations gh" "book-ids ids" "github-log ids" "offline-mode offm" "update-link offm" "conditional-read etag" "stale-page stale" "first-sync first" "network-down off" "footer-versions ver")
+SCENARIOS=("columns-and-form gh" "locations gh" "book-ids ids" "github-log ids" "offline-mode offm" "update-link offm" "conditional-read etag" "stale-page stale" "first-sync first" "network-down off" "footer-versions ver" "edit-during-sync editsync")
 echo "##### Tests unitaires"
 node "$HERE/unit/ids-and-csv.js" | tail -4 || FAIL=1
 node "$HERE/unit/history.js" > "$OUT/history.txt" 2>&1 && echo "history.js : $(grep -c '→' "$OUT/history.txt") cas lus, sans erreur" || { echo "history.js : ÉCHEC"; tail -5 "$OUT/history.txt"; FAIL=1; }
