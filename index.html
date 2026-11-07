@@ -298,6 +298,24 @@ async function loadCover(i){const u=await repoCover(i.dataset.isbn);if(u)i.src=u
 const coverObs=typeof IntersectionObserver==="function"?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){coverObs.unobserve(e.target);loadCover(e.target)}}),{rootMargin:"200px"}):null;
 const hydrateCovers=root=>root.querySelectorAll("img[data-isbn]").forEach(i=>{if(isOff()){i.style.display="none";return}coverObs?coverObs.observe(i):loadCover(i)});   // hors ligne : pas de pochettes dans le tableau (données économisées)
 const COLS=[["auteur","Auteur"],["titre","Titre"],["date_lecture","Lu le"],["nb_pages","Pages"],["localisation","Localisation"],["resume","Résumé"],["isbn","ISBN"],["date_entree","Entré le"],["couverture","Pochette (URL)"],["a_verifier","À vérifier"],["a_garder","À garder"]];
+/* Colonnes du fichier = champs visibles (COLS) + identifiant technique, toujours en dernière colonne. COLS pilote le formulaire et le tableau : `id` n'y figure donc pas. */
+const CSV_COLS=[...COLS.map(c=>c[0]),"id"];
+/* Identifiant permanent d'une fiche : UUIDv7 (48 bits d'horodatage en ms, version 7, variante 10, 74 bits aléatoires).
+   L'horodatage avance d'au moins 1 ms à chaque appel : les identifiants d'un même appareil sont strictement croissants (et donc triables par chaîne). */
+const isBookId=s=>/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s||"");
+let lastIdMs=0;
+function createBookId(){
+  let ms=Date.now();if(ms<=lastIdMs)ms=lastIdMs+1;lastIdMs=ms;
+  const b=crypto.getRandomValues(new Uint8Array(16));
+  let t=ms;for(let i=5;i>=0;i--){b[i]=t%256;t=Math.floor(t/256)}
+  b[6]=(b[6]&0x0f)|0x70;b[8]=(b[8]&0x3f)|0x80;
+  const x=[...b].map(v=>v.toString(16).padStart(2,"0")).join("");
+  return x.slice(0,8)+"-"+x.slice(8,12)+"-"+x.slice(12,16)+"-"+x.slice(16,20)+"-"+x.slice(20);
+}
+/* identifiant dupliqué : la première fiche le garde, les suivantes en reçoivent un nouveau (aucune fiche fusionnée ni supprimée) */
+function fixDupIds(list){const seen=new Set();let n=0;list.forEach(b=>{if(isBookId(b.id)){if(seen.has(b.id)){b.id=createBookId();n++}seen.add(b.id)}});return n}
+/* attribue un identifiant aux fiches qui n'en ont pas, dans l'ordre de la liste (idempotent : les identifiants valides sont conservés) */
+function withIds(list){fixDupIds(list);let n=0;list.forEach(b=>{if(!isBookId(b.id)){b.id=createBookId();n++}});return n}
 const KEY="livrotheque.v1", SK="livrotheque.sync.";
 const lib=()=>localStorage.getItem(SK+"lib")||"";
 const OFFK="livrotheque.offline";
@@ -319,11 +337,13 @@ function parseCsv(buf){
   if(!lines.length)return [];                                  // fichier vide : aucune ligne (et non une erreur)
   const head=lines.shift().split("\t").map(h=>h.replace(/^"|"$/g,"").trim());
   return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>x.replace(/^"|"$/g,""));const o={};
-    COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});o.isbn=cleanIsbn(o.isbn);o.a_garder=/^(oui|non)$/i.test(o.a_garder)?o.a_garder.toLowerCase():"";return o});
+    COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});{const i=head.indexOf("id"),v=i>=0?(c[i]||"").trim().toLowerCase():"";o.id=isBookId(v)?v:""}/* ancien CSV sans colonne id : identifiant vide */o.isbn=cleanIsbn(o.isbn);o.a_garder=/^(oui|non)$/i.test(o.a_garder)?o.a_garder.toLowerCase():"";return o});
 }
 function toCsv(list=books){
   const f=v=>'"'+String(v??"").replace(/[\t\r\n]+/g," ")+'"';
-  return "﻿"+[COLS.map(([k])=>f(k)).join("\t"),...list.map(b=>COLS.map(([k])=>f(b[k])).join("\t"))].join("\r\n");
+  /* fichier trié par identifiant (= ordre de création, copie : `books` n'est pas réordonné) ; tant que des fiches n'ont pas d'identifiant, l'ordre est inchangé */
+  const rows=list.every(b=>isBookId(b.id))?[...list].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0):list;
+  return "﻿"+[CSV_COLS.map(k=>f(k)).join("\t"),...rows.map(b=>CSV_COLS.map(k=>f(b[k])).join("\t"))].join("\r\n");
 }
 
 /* ---------- Affichage ---------- */
@@ -438,6 +458,7 @@ $("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.t
     const d=findDups(v,cur);
     if(d.length&&!confirm("Doublon possible :\n"+d.slice(0,5).map(b=>"• "+b.auteur+" — "+b.titre+(b.isbn?" ("+b.isbn+")":"")).join("\n")+(d.length>5?"\n… et "+(d.length-5)+" autre(s)":"")+"\n\nEnregistrer quand même ?"))return;
   }
+  v.id=before?(before.id||""):createBookId();   // édition : identifiant conservé ; création : nouvel identifiant
   if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
 $("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
 
@@ -447,7 +468,7 @@ $("file").onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   const rows=parseCsv(await f.arrayBuffer());
   if(books.length&&!confirm(`Remplacer les ${books.length} livres actuels par les ${rows.length} du fichier ?`))return;
-  books=rows;save();render();e.target.value="";
+  withIds(rows);books=rows;save();render();e.target.value="";
 };
 function downloadCsv(text,name){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));a.download=name;a.click()}
 $("bExport").onclick=()=>downloadCsv(toCsv(),"books-nicole.csv");
@@ -599,7 +620,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T14:24:28Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T14:53:23Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -633,26 +654,43 @@ async function pageIsStale(){
   return appStale;
 }
 /* ---------- Dernières modifications de la bibliothèque : 10 derniers commits du fichier, avec le détail livre par livre ---------- */
-const COLK=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier","a_garder"];
+const COLK=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier","a_garder","id"];
 const OLD_ORDER=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_achat","date_entree","couverture","a_verifier"];   // avant le retrait de « acheté le »
 const NEW_ORDER=["auteur","titre","date_lecture","nb_pages","localisation","resume","isbn","date_entree","couverture","a_verifier","a_garder"];
+const NEWEST_ORDER=[...NEW_ORDER,"id"];   // avec l'identifiant de fiche
 const FLAB={auteur:"auteur",titre:"titre",date_lecture:"lu le",nb_pages:"pages",localisation:"localisation",resume:"résumé",isbn:"ISBN",date_achat:"acheté le",date_entree:"entré le",couverture:"pochette",a_verifier:"à vérifier",a_garder:"à garder"};
 const isHeaderLine=l=>/^﻿?"auteur"\t/.test(l);
 const hdrNames=l=>l.replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"").trim());
 const isDateTxt=s=>/^\d\d\/\d\d\/\d{4}$/.test(s||"");
 /* colonnes lues par en-tête quand il est connu ; sinon : ancien format si la 9e valeur est une date (date d'entrée), nouveau format sinon (URL de pochette ou vide) */
-const parseRow=(l,names)=>{const c=l.replace(/\r$/,"").replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"")),o={};COLK.forEach(k=>o[k]="");(names||(isDateTxt(c[8])?OLD_ORDER:NEW_ORDER)).forEach((k,i)=>{if(k in o)o[k]=c[i]||""});return o};
+const parseRow=(l,names)=>{const c=l.replace(/\r$/,"").replace(/^﻿/,"").split("\t").map(x=>x.replace(/^"|"$/g,"")),o={};COLK.forEach(k=>o[k]="");(names||(isDateTxt(c[8])?OLD_ORDER:isBookId(c[11])?NEWEST_ORDER:NEW_ORDER)).forEach((k,i)=>{if(k in o)o[k]=c[i]||""});return o};
 const shortTxt=(s,n=38)=>s.length>n?s.slice(0,n-1)+"…":s;
 const rowLabel=b=>(b.auteur||"?")+" — "+(b.titre||"?");
 /* groupes de lignes supprimées / ajoutées -> liste de changements lisibles */
 function describeGroups(groups){
   const out=[];let header=false;
   const keyOf=b=>b.isbn?"i:"+b.isbn:"t:"+nk(b.auteur)+"|"+nk(b.titre);
-  for(const g of groups){
+  const CMP=COLK.filter(k=>k!=="id");                 // l'identifiant n'est jamais un champ « modifié »
+  /* 1) lecture de tous les groupes */
+  const G=groups.map(g=>{
     const rem=g.rem.filter(l=>l.trim()),add=g.add.filter(l=>l.trim());
     if(rem.some(isHeaderLine)||add.some(isHeaderLine))header=true;
     const hr=rem.find(isHeaderLine),ha=add.find(isHeaderLine),nR=hr?hdrNames(hr):null,nA=ha?hdrNames(ha):null;
-    const R=rem.filter(l=>!isHeaderLine(l)).map(l=>parseRow(l,nR)),A=add.filter(l=>!isHeaderLine(l)).map(l=>parseRow(l,nA));
+    return {R:rem.filter(l=>!isHeaderLine(l)).map(l=>parseRow(l,nR)),A:add.filter(l=>!isHeaderLine(l)).map(l=>parseRow(l,nA))};
+  });
+  const emit=([r,a])=>{
+    const ch=CMP.filter(k=>r[k]!==a[k]).map(k=>k==="a_verifier"?(a[k]?"marqué à vérifier":"vérifié"):k==="resume"?"résumé modifié":!r[k]?FLAB[k]+" ajouté « "+shortTxt(a[k])+" »":!a[k]?FLAB[k]+" supprimé":FLAB[k]+" « "+shortTxt(r[k])+" » → « "+shortTxt(a[k])+" »");
+    if(ch.length)out.push({t:"mod",label:rowLabel(a),ch,fields:CMP.filter(k=>r[k]!==a[k])});
+  };
+  /* 2) appariement par identifiant sur l'ensemble du patch : une fiche renommée ou déplacée reste la même fiche */
+  const addIds=new Map(),remIds=new Set(),idPairs=[];
+  G.forEach(({A})=>A.forEach(a=>{if(isBookId(a.id))addIds.set(a.id,a)}));
+  G.forEach(({R})=>R.forEach(r=>{if(isBookId(r.id))remIds.add(r.id)}));
+  G.forEach(g=>{g.R=g.R.filter(r=>{if(isBookId(r.id)&&addIds.has(r.id)){idPairs.push([r,addIds.get(r.id)]);return false}return true})});
+  G.forEach(g=>{g.A=g.A.filter(a=>!(isBookId(a.id)&&remIds.has(a.id)))});
+  idPairs.forEach(emit);
+  /* 3) lignes sans identifiant (anciens commits) : lecture rétrocompatible, comme avant */
+  for(const {R,A} of G){
     const pairs=[],delR=[];let addA=[...A];
     if(R.length===A.length){
       addA=[];
@@ -661,10 +699,7 @@ function describeGroups(groups){
         if(nk(r.auteur)!==nk(x.auteur)&&nk(r.titre)!==nk(x.titre)){delR.push(r);addA.push(x)}else pairs.push([r,x])});
     }
     else R.forEach(r=>{const j=addA.findIndex(a=>keyOf(a)===keyOf(r));if(j>=0)pairs.push([r,addA.splice(j,1)[0]]);else delR.push(r)});
-    for(const [r,a] of pairs){
-      const ch=COLK.filter(k=>r[k]!==a[k]).map(k=>k==="a_verifier"?(a[k]?"marqué à vérifier":"vérifié"):k==="resume"?"résumé modifié":!r[k]?FLAB[k]+" ajouté « "+shortTxt(a[k])+" »":!a[k]?FLAB[k]+" supprimé":FLAB[k]+" « "+shortTxt(r[k])+" » → « "+shortTxt(a[k])+" »");
-      if(ch.length)out.push({t:"mod",label:rowLabel(a),ch,fields:COLK.filter(k=>r[k]!==a[k])});
-    }
+    pairs.forEach(emit);
     delR.forEach(r=>out.push({t:"del",label:rowLabel(r)}));addA.forEach(a=>out.push({t:"add",label:rowLabel(a)}));
   }
   return {entries:out,header};
@@ -673,7 +708,8 @@ function describeGroups(groups){
 function groupsFromPatch(patch){
   const groups=[];let cur=null;
   for(const l of patch.split("\n")){
-    if(l.startsWith("@@")||l.startsWith("\\")||l.startsWith(" ")||l===""){cur=null;continue}
+    if(l.startsWith("\\"))continue;                    // « \ No newline at end of file » : ni ligne de contexte, ni coupure de groupe (sinon la dernière ligne du fichier ne s'apparie plus)
+    if(l.startsWith("@@")||l.startsWith(" ")||l===""){cur=null;continue}
     if(l[0]==="-"){if(!cur||cur.add.length)groups.push(cur={rem:[],add:[]});cur.rem.push(l.slice(1))}
     else if(l[0]==="+"){if(!cur)groups.push(cur={rem:[],add:[]});cur.add.push(l.slice(1))}
   }
@@ -781,7 +817,7 @@ async function gh(method,body,id,kind,etag){
   const j=await r.json();j._etag=r.headers.get("ETag")||"";return j;
 }
 /* ETag de la dernière lecture complète de la base, valable seulement pour le format de fichier courant (sinon relecture complète) */
-const etagKey=()=>SK+lib()+".etag",SCHEMA=COLS.map(c=>c[0]).join(",");
+const etagKey=()=>SK+lib()+".etag",SCHEMA=CSV_COLS.join(",");
 const getEtag=()=>{try{const o=JSON.parse(localStorage.getItem(etagKey()));return o&&o.s===SCHEMA&&o.e&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".sha")?o.e:""}catch(e){return ""}};
 async function pull(){
   if(!cfg().repo||!cfg().token||!lib())return;
@@ -797,7 +833,7 @@ async function pull(){
      sinon on relit le fichier (la copie locale peut avoir été lue par une ancienne version de la page, sans toutes les colonnes) */
     if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".dirty")==="1"){scheduleSync();return}
     const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
-    const incoming=parseCsv(b64dec(f.content));
+    const incoming=parseCsv(b64dec(f.content)),dupFixed=fixDupIds(incoming);
     if(!incoming.length&&books.length){setStatus("☁ le dépôt renvoie une liste vide : votre copie locale ("+books.length+" livres) est conservée","#f99");return}
     if(dirty){
       const ch=await resolveConflict(incoming);
@@ -808,6 +844,7 @@ async function pull(){
     localStorage.setItem(ck(),JSON.stringify(books));localStorage.setItem(SK+lib()+".sha",f.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".pend","0");localStorage.setItem(SK+lib()+".count",String(books.length));
     if(f._etag)localStorage.setItem(etagKey(),JSON.stringify({e:f._etag,s:SCHEMA}));
     render();setStatus("☁ synchronisé");
+    if(dupFixed)save();                                  // identifiants dupliqués corrigés : à renvoyer
   }catch(e){
     if(e.status===404){setStatus("☁ fichier absent : il sera créé","#ffd");localStorage.removeItem(SK+lib()+".sha");if(books.length)scheduleSync()}
     else setStatus("☁ erreur de lecture ("+e.message+")","#f99");
@@ -848,7 +885,7 @@ async function push(){
   }finally{syncing=false}
 }
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const emptyCsv=()=>"\ufeff"+COLS.map(([k])=>'"'+k+'"').join("\t")+"\r\n";
+const emptyCsv=()=>"\ufeff"+CSV_COLS.map(k=>'"'+k+'"').join("\t")+"\r\n";
 const sMsg=(t,bad)=>{$("sMsg").textContent=t;$("sMsg").style.color=bad?"#c33":"#285"};
 const metaKey=id=>SK+id+".meta";
 const getMeta=()=>{try{return JSON.parse(localStorage.getItem(metaKey(lib())))||{}}catch(e){return {}}};
@@ -939,7 +976,7 @@ $("sCreate").onclick=async()=>{
     ["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(getMeta());refreshCur();setStatus("☁ synchronisé");
     sMsg("Bibliothèque créée et ouverte. Notez son UUID : il est indispensable pour la rouvrir sur un autre appareil.");
     if(loc.length){
-      if(confirm("Cet appareil contient une liste locale de "+loc.length+" livres.\n\nOK = les importer dans la nouvelle bibliothèque\nAnnuler = laisser la bibliothèque vide")){books=loc;save();render();sMsg("Bibliothèque créée avec vos "+loc.length+" livres (envoi en cours).")}
+      if(confirm("Cet appareil contient une liste locale de "+loc.length+" livres.\n\nOK = les importer dans la nouvelle bibliothèque\nAnnuler = laisser la bibliothèque vide")){withIds(loc);books=loc;save();render();sMsg("Bibliothèque créée avec vos "+loc.length+" livres (envoi en cours).")}
       else offerLocalBackup(loc);
     }
   }catch(e){sMsg("Création impossible ("+e.message+")",1)}
@@ -1034,10 +1071,11 @@ function applyOffUi(){
   $("offLab").title=on?"Mode hors ligne : aucun échange avec le dépôt, les modifications restent sur cet appareil. Cliquez pour revenir en ligne et les envoyer.":"Passer en mode hors ligne : économise les données, les modifications restent sur cet appareil et partent au retour en ligne (les recherches d'infos restent possibles).";
 }
 /* ----- conflit : l'appareil a des modifications non envoyées ET le dépôt a changé ----- */
-const rowKey=b=>b.isbn?"i"+String(b.isbn).replace(/\D/g,""):"t"+nk((b.auteur||"")+" "+(b.titre||""));
+const rowKey=(b,byId)=>byId&&isBookId(b.id)?"d"+b.id:b.isbn?"i"+String(b.isbn).replace(/\D/g,""):"t"+nk((b.auteur||"")+" "+(b.titre||""));
 const sameRow=(a,b)=>COLS.every(([k])=>String(a[k]||"")===String(b[k]||""));
 function diffLists(local,remote){
-  const mp=l=>{const m=new Map();l.forEach(b=>{const k=rowKey(b);if(!m.has(k))m.set(k,[]);m.get(k).push(b)});return m};
+  const byId=local.every(b=>isBookId(b.id))&&remote.every(b=>isBookId(b.id));   // identifiants des deux côtés : un livre renommé reste « modifié »
+  const mp=l=>{const m=new Map();l.forEach(b=>{const k=rowKey(b,byId);if(!m.has(k))m.set(k,[]);m.get(k).push(b)});return m};
   const L=mp(local),R=mp(remote),out={onlyLocal:[],onlyRemote:[],changed:[]};
   for(const k of new Set([...L.keys(),...R.keys()])){
     const a=(L.get(k)||[]).slice(),b=(R.get(k)||[]).slice();
