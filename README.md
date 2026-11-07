@@ -13,3 +13,7 @@ The page itself can be reopened without a network (service worker `sw.js`) and i
 ## Tests
 
 Scenario and unit tests are in [`tests/`](tests/README.md). They use a mock GitHub and fictitious books only.
+
+## Publication
+
+The workflow `.github/workflows/pages.yml` runs the tests (`tests/run-all.sh`) on every push. On `main`, when they pass, it publishes the site on GitHub Pages and writes the publication time into `APP_BUILD` (`index.html`) and `BUILD` (`sw.js`) of the published copy (`tools/stamp.sh`): there is no need to update them by hand. It requires **Settings → Pages → Source: GitHub Actions**.
