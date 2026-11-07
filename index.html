@@ -25,7 +25,8 @@ header label{font-size:13px;white-space:nowrap}
 .offsw.on{background:#f0a030;color:#2b1a10}.offsw.on i{background:#7a4a00}.offsw.on i::after{left:18px}
 .offsw input:focus-visible+i{outline:2px solid #fff;outline-offset:2px}
 #offHint{display:none;flex-basis:100%;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;background:#f0a03022;border:1px solid #f0a030;border-radius:6px;padding:5px 10px}
-#offHint button{padding:3px 10px;font-size:12px}
+#offHint button,#updHint button{padding:3px 10px;font-size:12px}
+#updHint{display:none;flex-basis:100%;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;background:#4caf5033;border:1px solid #4caf50;border-radius:6px;padding:5px 10px}
 #kBody ul{margin:2px 0 6px;padding-left:20px;font-size:13px}
 .sf{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;flex:1 1 auto}
 .sf input[type=search]{flex:0 1 420px;min-width:180px}
@@ -125,6 +126,7 @@ dialog h4{margin:14px 0 4px}
   <div class="brk"></div>
   <span id="info"></span>
   <div id="offHint"><span>📶 <span id="offWhy"></span> — passer en mode hors ligne pour économiser les données ?</span><button id="offGo">Passer hors ligne</button><button id="offLater" class="sec">Plus tard</button></div>
+  <div id="updHint"><span>🔄 Une nouvelle version de l'application est prête.</span><button id="updGo">Recharger</button></div>
   <input type="file" id="file" accept=".csv,.txt,.tsv" hidden>
 </header>
 <div id="ov"></div>
@@ -599,7 +601,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T11:11:52Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T11:39:05Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -1077,7 +1079,11 @@ updateLabel();
 renderVer();
 appVersion();
 applyCfgHash().then(redirected=>{if(!redirected){pull();if(isOff())offStatus()}});
-if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});   // page réouvrable sans réseau
+if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});
+if("serviceWorker" in navigator){   // le service worker a téléchargé une nouvelle version pendant qu'il servait la copie gardée
+  navigator.serviceWorker.addEventListener("message",e=>{if(e.data&&e.data.type==="update-ready"){$("updHint").style.display="flex";setHH()}});
+  $("updGo").onclick=()=>location.reload();
+}   // page réouvrable sans réseau
 if(!books.length&&!lib()&&!isOff())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
 </body>
