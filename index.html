@@ -601,7 +601,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T11:51:01Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T12:00:27Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -615,7 +615,7 @@ const renderVer=()=>{
     return;
   }
   const app=appInfo||localStorage.getItem("livrotheque.appinfo")||"";
-  $("verApp").textContent="Application : "+(app||built)+(appStale?" ⚠ nouvelle version disponible, rechargez la page (Ctrl+F5)":"");
+  $("verApp").innerHTML="Application : "+esc(app||built)+(appStale?` <a href="#" id="verUpd" style="color:#ffd27a;font-weight:600">⚠ nouvelle version disponible — mettre à jour</a>`:"");
   $("verDb").textContent="Base : "+(db||(lib()?"version inconnue (non synchronisée)":"locale, non synchronisée"));
 };
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
@@ -743,6 +743,18 @@ $("hDb").addEventListener("click",async ev=>{
     const d=describeGroups(groupsFromTexts(before,after));box.innerHTML=renderChanges(d.entries,d.header);
   }catch(e){box.textContent="Détail indisponible ("+(e.message||"réseau")+")."}
 });
+/* Mise à jour de la page en un geste (utilisable sur mobile, sans Ctrl+F5) : on oublie les copies gardées par le service worker, puis on recharge
+   une adresse inédite (?maj=…) que ni le cache du navigateur ni le service worker ne peuvent avoir en réserve. Les données de l'appareil sont conservées. */
+let goTo=u=>location.replace(u);
+async function forceUpdate(){
+  try{
+    if("serviceWorker" in navigator)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
+    if(window.caches)for(const k of await caches.keys())if(k!=="livrotheque-flags")await caches.delete(k);
+  }catch(e){}
+  window.__noPrompt=true;                                  // les modifications en attente restent sur l'appareil : pas de question au départ
+  goTo(location.pathname+"?maj="+Date.now()+location.hash);
+}
+document.addEventListener("click",e=>{if(e.target&&e.target.id==="verUpd"){e.preventDefault();forceUpdate()}});
 $("verHist").onclick=e=>{e.preventDefault();$("dlgH").showModal();loadHist()};
 $("hClose").onclick=()=>$("dlgH").close();
 let verTimer=null;
@@ -901,7 +913,7 @@ function useLib(id){
   books=JSON.parse(localStorage.getItem(ck())||"[]");render();updateLabel();
 }
 const refreshCur=()=>{$("curBox").style.display=lib()?"":"none";$("sCur").textContent=lib();renderLocs()};
-$("sync").onclick=()=>{if(/version périmée/.test($("sync").textContent)){location.reload();return}if(/erreur d'envoi|envoi impossible/.test($("sync").textContent)&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}};
+$("sync").onclick=()=>{if(/version périmée/.test($("sync").textContent)){forceUpdate();return}if(/erreur d'envoi|envoi impossible/.test($("sync").textContent)&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}};
 window.addEventListener("online",()=>{if(!isOff()&&cfg().repo&&cfg().token&&lib()&&localStorage.getItem(SK+lib()+".dirty")==="1"){retryN=0;clearTimeout(retryTimer);push()}});
 $("bSync").onclick=()=>{$("sRepo").value=cfg().repo;$("sToken").value=cfg().token;$("sLib").value="";["nName","nDesc","nOwner"].forEach(i=>$(i).value="");fillMeta(lib()?getMeta():null);refreshCur();sMsg("");$("dlgS").showModal()};
 $("sClose").onclick=()=>$("dlgS").close();
@@ -945,7 +957,7 @@ $("sMeta").onclick=async()=>{
 $("locAdd").onclick=async()=>{const r=await addLocation($("locNew").value);if(r.ok){$("locNew").value="";sMsg("Localisation « "+r.name+" » ajoutée.")}else sMsg(r.msg,1)};
 $("locNew").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("locAdd").click()}});
 $("locList").addEventListener("click",async e=>{const b=e.target.closest("button[data-loc]");if(!b)return;const r=await removeLocation(b.dataset.loc);if(r.ok)sMsg("Localisation supprimée"+(r.used?" ("+r.used+" livre"+(r.used>1?"s":"")+" mis à jour).":"."));else if(r.msg)sMsg(r.msg,1)});
-window.addEventListener("beforeunload",e=>{if(!isOff()&&localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
+window.addEventListener("beforeunload",e=>{if(!window.__noPrompt&&!isOff()&&localStorage.getItem(SK+lib()+".dirty")==="1"&&cfg().repo){e.preventDefault();e.returnValue=""}});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localStorage.getItem(SK+lib()+".dirty")!=="1")pull()});
 
 const setHH=()=>{const hd=document.querySelector&&document.querySelector("header");if(hd)document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px")};
@@ -1086,6 +1098,7 @@ window.addEventListener("offline",()=>suggestOffline("L'appareil n'a plus de ré
 setTimeout(connCheck,1500);
 applyOffUi();
 
+if(/[?&]maj=/.test(location.search)&&history.replaceState)history.replaceState(null,"",location.pathname+location.hash);
 render();
 updateLabel();
 renderVer();
@@ -1094,7 +1107,7 @@ applyCfgHash().then(redirected=>{if(!redirected){pull();if(isOff())offStatus()}}
 if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});
 if("serviceWorker" in navigator){   // le service worker a téléchargé une nouvelle version pendant qu'il servait la copie gardée
   navigator.serviceWorker.addEventListener("message",e=>{if(e.data&&e.data.type==="update-ready"){$("updHint").style.display="flex";setHH()}});
-  $("updGo").onclick=()=>location.reload();
+  $("updGo").onclick=()=>forceUpdate();
 }   // page réouvrable sans réseau
 if(!books.length&&!lib()&&!isOff())setStatus("Cliquez sur « ☁ Synchro » pour ouvrir ou créer une bibliothèque"); /* même place que « ☁ synchronisé », à droite du bouton */
 </script>
