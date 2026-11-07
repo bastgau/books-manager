@@ -7,7 +7,7 @@ Scenario and unit tests for `index.html`. They never touch a real repository: Gi
 | Folder | Content |
 |---|---|
 | `unit/` | Node tests that load the page's script without a browser. `ids-and-csv.js` (UUIDv7 generator, CSV read/write/sort, history by id) and `share-link.js` (share link encryption) report pass/fail; `history.js` prints how change histories are decoded. |
-| `scenarios/` | Scripts run inside the page (headless Chrome): columns and form, locations, book ids, offline mode, conditional reads, stale page protection, first sync, network down, footer versions, GitHub request log, editing while a sync replaces the list, a change made during an upload, a repository file above 1 MB. |
+| `scenarios/` | Scripts run inside the page (headless Chrome): columns and form, locations, book ids, offline mode, conditional reads, stale page protection, first sync, network down, footer versions, GitHub request log, editing while a sync replaces the list, a change made during an upload, a repository file above 1 MB, an upload refused because the file changed elsewhere. |
 | `seeds/` | Mock GitHub data sets (`fetch` replacement and initial `localStorage`) used by the scenarios. |
 | `data/make-sample-csv.js` | Generates the fictitious library (default 400 books, legacy format without `id`). |
 | `lib/mkpage.js` | Builds a copy of the page with the books, the seed and the scenario injected; the result is written in the page `<title>`. |

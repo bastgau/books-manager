@@ -16,7 +16,7 @@ window.__remoteEdit=function(f){var l=parseCsv(new TextEncoder().encode(net.text
 function J(b,s){return Promise.resolve(new Response(JSON.stringify(b),{status:s||200,headers:{"Content-Type":"application/json"}}))}
 window.fetch=function(u,o){u=decodeURIComponent(String(u));var m=(o&&o.method)||"GET";
  if(/contents\/.*-database\.csv/.test(u)){
-  if(m==="PUT"){var b=JSON.parse(o.body);net.puts.push(unb64(b.content));return new Promise(function(r){setTimeout(function(){net.text=unb64(b.content);net.sha="p"+(++net.n);r(J({content:{sha:net.sha}}))},net.putDelay)})}
+  if(m==="PUT"){var b=JSON.parse(o.body);if((b.sha||null)!==net.sha){net.conflicts=(net.conflicts||0)+1;return J({message:"is at "+net.sha+" but expected "+b.sha},409)}/* like GitHub: the sha sent must be the current one */net.puts.push(unb64(b.content));return new Promise(function(r){setTimeout(function(){net.text=unb64(b.content);net.sha="p"+(++net.n);r(J({content:{sha:net.sha}}))},net.putDelay)})}
   return J({sha:net.sha,content:b64(net.text)});
  }
  if(/commits\?path=index\.html/.test(u))return J([]);

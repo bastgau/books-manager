@@ -652,7 +652,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:25:11Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:26:45Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -950,8 +950,9 @@ async function push(){
     /* changes made during the upload are not in the file: they stay "to send" (page-close warning kept) and go in the next upload */
     if(editSeq===seq){localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".pend","0");setStatus("☁ synchronisé")}else scheduleSync();
   }catch(e){
-    if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
-      if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
+    /* the file changed on another device: read it while keeping the local changes ("dirty"), so pull() opens the conflict dialog
+       (differences, download of this device's version, choice of the version to keep) */
+    if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");await pull()}
     else{
       /* réseau injoignable ou bloqué (aucun code HTTP), ou erreur serveur 5xx : on réessaie seul, puis on propose un clic */
       const net=!e.status,transient=net||e.status>=500;
