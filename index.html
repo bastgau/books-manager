@@ -213,7 +213,7 @@ dialog h4{margin:14px 0 4px}
   </fieldset>
   <fieldset><legend>Partager la configuration (lien valable 24 h)</legend>
     <div class="grid">
-      <label>Mot de passe</label><input id="shPass" type="password" placeholder="obligatoire (6 caractères min.), chiffre le lien" autocomplete="new-password">
+      <label>Mot de passe</label><input id="shPass" type="password" placeholder="obligatoire (12 caractères min.), chiffre le lien" autocomplete="new-password">
       <label>Clé Google</label><label style="font-weight:normal"><input type="checkbox" id="shKey"> inclure dans le lien</label>
     </div>
     <div class="row" style="justify-content:flex-start"><button id="shGo" class="sec">Générer le lien</button><button id="shCopy" class="sec">Copier</button></div>
@@ -300,10 +300,35 @@ const coverImg=(b,s,cls="cv")=>{const q=coverQ(b,s);return q.length?`<img class=
 function covErr(i){const q=JSON.parse(i.dataset.q||"[]"),n=q.shift();if(n){i.dataset.q=JSON.stringify(q);i.src=n}else i.style.display="none"}
 function covOk(i){if(i.src.includes("books.google.com")&&i.naturalWidth===128&&i.naturalHeight===170)i.style.display="none"} /* l'image "non disponible" de Google fait 128x170 */
 const coverCache=new Map();
+/* Covers stored in the repository: the folder is listed once per page load, with its ETag (an unchanged folder costs a 304,
+   which GitHub does not count against the rate limit); then only files that exist are downloaded.
+   null = list unknown (network error, or 1 000 files or more, the Contents API limit): every ISBN is then asked, as before. */
+let coverIdx=null;
+function coverIndex(){
+  if(coverIdx&&coverIdx.lib===lib())return coverIdx.p;
+  const c=cfg(),k=SK+lib()+".covers";
+  const p=(async()=>{
+    let saved=null;try{saved=JSON.parse(localStorage.getItem(k))}catch(e){}
+    try{
+      const H={Authorization:"Bearer "+c.token,Accept:"application/vnd.github.object+json"};if(saved&&saved.e)H["If-None-Match"]=saved.e;
+      const r=await ghFetch("liste des pochettes",`https://api.github.com/repos/${c.repo}/contents/libraries/${lib()}-covers?ref=${encodeURIComponent(c.branch)}`,{headers:H,cache:saved&&saved.e?"no-store":undefined});
+      if(r.status===304&&saved&&Array.isArray(saved.n))return new Set(saved.n);
+      if(r.status===404){try{localStorage.removeItem(k)}catch(e){}return new Set()}   // no covers folder
+      if(!r.ok)return null;
+      const j=await r.json(),entries=Array.isArray(j)?j:(j.entries||[]);
+      if(entries.length>=1000){try{localStorage.removeItem(k)}catch(e){}return null}
+      const n=entries.filter(x=>x.type==="file").map(x=>x.name);
+      try{localStorage.setItem(k,JSON.stringify({e:r.headers.get("ETag")||"",n}))}catch(e){}
+      return new Set(n);
+    }catch(e){return null}
+  })();
+  coverIdx={lib:lib(),p};return p;
+}
 function repoCover(isbn){
   const c=cfg();if(!isbn||!lib()||!c.repo||!c.token||isOff())return Promise.resolve(null);
   const key=lib()+"/"+isbn;if(coverCache.has(key))return coverCache.get(key);
   const p=(async()=>{try{
+    const idx=await coverIndex();if(idx&&!idx.has(isbn+".jpg"))return null;   // not in the folder: no request
     const r=await ghFetch("pochettes du dépôt",`https://api.github.com/repos/${c.repo}/contents/libraries/${lib()}-covers/${isbn}.jpg?ref=${encodeURIComponent(c.branch)}`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}});
     return r.ok?URL.createObjectURL(await r.blob()):null}catch(e){return null}})();
   coverCache.set(key,p);return p;
@@ -335,26 +360,33 @@ const lib=()=>localStorage.getItem(SK+"lib")||"";
 const OFFK="livrotheque.offline";
 const isOff=()=>localStorage.getItem(OFFK)==="1";
 const ck=()=>KEY+"."+(lib()||"local");
-let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, cur=null;
+let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, curRef=null;
 const $=id=>document.getElementById(id);
-const save=()=>{try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
-const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let editSeq=0;   // counts local changes: an upload only marks as sent the changes made before it started
+/* saveLocal: browser storage only, marked "to send", no upload started (long batches); save: the same, then an upload */
+const saveLocal=()=>{editSeq++;searchCache=new WeakMap();try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1))};
+const save=()=>{saveLocal();scheduleSync()};
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));   // ' too: safe in single-quoted attributes
 const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
 const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
 
 /* ---------- CSV (tabulations, guillemets non échappés, encodage mixte UTF-8 / Windows-1252) ---------- */
 function decodeLine(bytes){try{return new TextDecoder("utf-8",{fatal:true}).decode(bytes)}catch(e){return new TextDecoder("windows-1252").decode(bytes)}}
+/* line breaks and tabs inside a value are written as \n and \t (backslash itself as \\), so a book stays on one line and paragraphs are kept;
+   a backslash followed by any other character is left as is (files written before this change) */
+const csvEnc=v=>String(v??"").replace(/\\/g,"\\\\").replace(/\r\n|\r|\n/g,"\\n").replace(/\t/g,"\\t");
+const csvDec=v=>v.replace(/\\([\\nt])/g,(_,c)=>c==="n"?"\n":c==="t"?"\t":"\\");
 function parseCsv(buf){
   const u=new Uint8Array(buf), lines=[]; let s=0;
   for(let i=0;i<=u.length;i++) if(i===u.length||u[i]===10){ if(i>s) lines.push(decodeLine(u.subarray(s,i)).replace(/\r$/,"")); s=i+1; }
   if(lines.length&&lines[0].charCodeAt(0)===0xFEFF) lines[0]=lines[0].slice(1);
   if(!lines.length)return [];                                  // fichier vide : aucune ligne (et non une erreur)
   const head=lines.shift().split("\t").map(h=>h.replace(/^"|"$/g,"").trim());
-  return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>x.replace(/^"|"$/g,""));const o={};
+  return lines.filter(l=>l.trim()).map(l=>{const c=l.split("\t").map(x=>csvDec(x.replace(/^"|"$/g,"")));const o={};
     COLS.forEach(([k])=>{const i=head.indexOf(k);o[k]=i>=0?(c[i]||""):""});{const i=head.indexOf("id"),v=i>=0?(c[i]||"").trim().toLowerCase():"";o.id=isBookId(v)?v:""}/* ancien CSV sans colonne id : identifiant vide */o.isbn=cleanIsbn(o.isbn);o.a_garder=/^(oui|non)$/i.test(o.a_garder)?o.a_garder.toLowerCase():"";return o});
 }
 function toCsv(list=books){
-  const f=v=>'"'+String(v??"").replace(/[\t\r\n]+/g," ")+'"';
+  const f=v=>'"'+csvEnc(v)+'"';
   /* fichier trié par identifiant (= ordre de création, copie : `books` n'est pas réordonné) ; tant que des fiches n'ont pas d'identifiant, l'ordre est inchangé */
   const rows=list.every(b=>isBookId(b.id))?[...list].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0):list;
   return "﻿"+[CSV_COLS.map(k=>f(k)).join("\t"),...rows.map(b=>CSV_COLS.map(k=>f(b[k])).join("\t"))].join("\r\n");
@@ -363,6 +395,11 @@ function toCsv(list=books){
 /* ---------- Affichage ---------- */
 const WIDTHS={auteur:"190px",titre:"310px",date_lecture:"100px",nb_pages:"70px",localisation:"150px",resume:"72px",isbn:"132px",date_entree:"100px",a_garder:"96px"};
 const norm=s=>String(s||"").replace(/^\s*\([^)]*\)\s*/,"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+/* search: lowercase without accents ("eloise" finds "Éloïse"); punctuation kept, unlike nk(). Each book's searchable text is
+   computed once and cached per book object; save() clears the cache, since some changes edit a book in place. */
+const fold=s=>String(s??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+let searchCache=new WeakMap();
+const searchText=b=>{let t=searchCache.get(b);if(t===undefined){t=COLS.map(([k])=>fold(b[k])).join("\n");searchCache.set(b,t)}return t};
 const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c)?c:"#"};
 const expanded=new Set();
 let letters=[];
@@ -373,11 +410,11 @@ function render(){
   const cols=SHOW.map(k=>COLS.find(c=>c[0]===k)).filter(c=>c&&(!mobile||c[0]==="auteur"||c[0]==="titre"||c[0]==="resume"));
   const W=mobile?{auteur:"34%",titre:"auto",resume:"46px"}:WIDTHS;
   $("thead").innerHTML=`<th style="width:${mobile?52:56}px"></th>`+cols.map(([k,l])=>`<th data-k="${k}" style="width:${W[k]||"auto"}">${mobile&&k==="resume"?"📝":l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
-  const q=$("q").value.toLowerCase().trim();
+  const q=fold($("q").value).trim();
   const dupSet=dupIndexes();
   const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
   let list=books.map((b,i)=>[b,i]).filter(([b,i])=>
-    (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
+    (!q||searchText(b).includes(q))&&
     (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture)&&(!$("fCheck").checked||b.a_verifier)&&(!$("fDup").checked||dupSet.has(i)));
   const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):/^(auteur|titre)$/.test(sortKey)?norm(b[sortKey]).toLowerCase():String(b[sortKey]).toLowerCase();
   list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir||String(a[0].titre).localeCompare(String(b[0].titre))});
@@ -422,9 +459,15 @@ document.addEventListener("click",e=>{if(ovPinned&&!e.target.closest("#ov"))hide
 document.addEventListener("keydown",e=>{if(e.key==="Escape")hideOv()});
 $("thead").onclick=e=>{const k=e.target.closest("th")?.dataset.k;if(!k)return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render()};
 $("tbody").addEventListener("click",e=>{const tr=e.target.closest("tr[data-i]");if(tr&&!e.target.closest(".rs"))view(+tr.dataset.i)});
-let vIdx=null;
+/* A book open in a dialog is kept by id, not by position: a sync can replace the list while the dialog is open.
+   The copy of its values (snap) tells whether another device changed it in the meantime.
+   A book without a valid id (local list, test data) is found by object identity, which holds until a sync replaces the list. */
+const bookRef=i=>i==null||!books[i]?null:{id:books[i].id,obj:books[i],snap:{...books[i]}};
+const locate=r=>!r?-1:isBookId(r.id)?books.findIndex(b=>b.id===r.id):books.indexOf(r.obj);
+const GONE="Ce livre a été supprimé sur un autre appareil : rien n'a été modifié.";
+let vRef=null;
 function view(i){
-  vIdx=i;const b=books[i];
+  vRef=bookRef(i);const b=books[i];
   const f=(l,v)=>v?`<div><span class="muted">${l}</span> ${esc(v)}</div>`:"";
   $("vBody").innerHTML=`<div style="display:flex;gap:16px;align-items:flex-start">
     <div style="min-width:96px">${coverImg(b,"M","cvl")}</div>
@@ -437,14 +480,16 @@ function view(i){
   $("dlgV").showModal();
 }
 $("vClose").onclick=()=>$("dlgV").close();
-$("vOk").onclick=()=>{books[vIdx].a_verifier="";save();render();$("dlgV").close()};
-$("vEdit").onclick=()=>{$("dlgV").close();edit(vIdx)};
-$("q").addEventListener("input",render);
+$("vOk").onclick=()=>{const i=locate(vRef);$("dlgV").close();if(i<0){render();return alert(GONE)}books[i].a_verifier="";save();render()};
+$("vEdit").onclick=()=>{const i=locate(vRef);$("dlgV").close();if(i<0){render();return alert(GONE)}edit(i)};
+/* search: the table is rebuilt 150 ms after the last key press, not at every letter (rebuilding 1 000 rows takes ~200 ms) */
+let qTimer=null;
+$("q").addEventListener("input",()=>{clearTimeout(qTimer);qTimer=setTimeout(render,150)});
 ["fNoIsbn","fNoRes","fUnread","fCheck","fDup"].forEach(id=>$(id).addEventListener("input",render)); /* un filtre ne change pas l'état plié/déplié des lettres */
 
 /* ---------- Édition ---------- */
 function edit(i){
-  cur=i; const b=i==null?{}:books[i];
+  curRef=bookRef(i); const b=i==null?{}:books[i];
   $("dlgTitle").textContent=i==null?"Nouveau livre":"Modifier";
   $("form").innerHTML=COLS.filter(([k])=>k!=="a_verifier").map(([k,l])=>`<label>${l}</label>`+(k==="localisation"?`<div class="locrow"><select id="f_localisation">${locOptions(b.localisation)}</select><button type="button" id="locAddForm" class="sec" title="Créer une nouvelle localisation pour cette bibliothèque">+</button></div>`:k==="a_garder"?`<select id="f_a_garder"><option value="">—</option><option value="oui"${b.a_garder==="oui"?" selected":""}>Oui</option><option value="non"${b.a_garder==="non"?" selected":""}>Non</option></select>`:k==="resume"?`<textarea id="f_${k}">${esc(b[k])}</textarea>`:`<input id="f_${k}" value="${esc(b[k])}" ${/^date_/.test(k)?'placeholder="jj/mm/aaaa"':""}>`)).join("");
   $("form").insertAdjacentHTML("beforeend",`<div id="fPrev" style="display:none;grid-column:2"></div><label>À vérifier</label><input type="checkbox" id="f_a_verifier" ${b.a_verifier?"checked":""}>`);
@@ -466,15 +511,22 @@ const formVals=()=>Object.fromEntries(COLS.map(([k])=>[k,k==="a_verifier"?($("f_
 $("bAdd").onclick=()=>edit(null);
 $("bCancel").onclick=()=>$("dlg").close();
 $("bSave").onclick=()=>{const v=formVals();v.isbn=cleanIsbn(v.isbn);v.titre=TX.titleCase(v.titre);if(v.auteur&&(TX.mostlyUpper(v.auteur)||v.auteur===v.auteur.toLowerCase()))v.auteur=TX.authorCase(v.auteur);
+  /* edited book: find it again by id; it may have been deleted or changed on another device while the form was open */
+  let idx=-1;
+  if(curRef){
+    idx=locate(curRef);
+    if(idx<0){if(!confirm("Ce livre a été modifié ou supprimé sur un autre appareil pendant l'édition.\n\nOK = l'enregistrer comme nouveau livre\nAnnuler = abandonner vos changements")){$("dlg").close();render();return}}
+    else if(!sameRow(books[idx],curRef.snap)&&!confirm("Ce livre a été modifié sur un autre appareil pendant l'édition.\n\nOK = le remplacer par votre version\nAnnuler = garder la version de l'autre appareil")){$("dlg").close();render();return}
+  }
   /* doublon possible : on prévient si le livre est nouveau ou si son ISBN / auteur / titre a changé */
-  const before=cur==null?null:books[cur];
+  const before=idx<0?null:books[idx];
   if(!before||before.isbn!==v.isbn||before.auteur!==v.auteur||before.titre!==v.titre){
-    const d=findDups(v,cur);
+    const d=findDups(v,idx<0?null:idx);
     if(d.length&&!confirm("Doublon possible :\n"+d.slice(0,5).map(b=>"• "+b.auteur+" — "+b.titre+(b.isbn?" ("+b.isbn+")":"")).join("\n")+(d.length>5?"\n… et "+(d.length-5)+" autre(s)":"")+"\n\nEnregistrer quand même ?"))return;
   }
-  v.id=before?(before.id||""):createBookId();   // édition : identifiant conservé ; création : nouvel identifiant
-  if(cur==null)books.push(v);else books[cur]=v;save();$("dlg").close();render()};
-$("bDel").onclick=()=>{if(confirm("Supprimer ce livre ?")){books.splice(cur,1);save();$("dlg").close();render()}};
+  v.id=before?(before.id||""):curRef&&isBookId(curRef.id)?curRef.id:createBookId();   // édition : identifiant conservé (aussi si le livre est ré-enregistré après une suppression ailleurs) ; création : nouvel identifiant
+  if(idx<0)books.push(v);else books[idx]=v;save();$("dlg").close();render()};
+$("bDel").onclick=()=>{if(!confirm("Supprimer ce livre ?"))return;const i=locate(curRef);$("dlg").close();if(i<0){render();return alert(GONE)}books.splice(i,1);save();render()};
 
 /* ---------- Import / export ---------- */
 $("bImport").onclick=()=>{$("dlgS").close();$("file").click()};
@@ -485,7 +537,9 @@ $("file").onchange=async e=>{
   withIds(rows);books=rows;save();render();e.target.value="";
 };
 function downloadCsv(text,name){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));a.download=name;a.click()}
-$("bExport").onclick=()=>downloadCsv(toCsv(),"books-nicole.csv");
+/* export file name: the open library's name and today's date, e.g. "ma-bibliotheque-2026-11-07.csv" */
+const exportName=()=>{const d=new Date(),p=n=>String(n).padStart(2,"0"),slug=fold(lib()?getMeta().name||"bibliotheque":"bibliotheque locale").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"bibliotheque";return slug+"-"+d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+".csv"};
+$("bExport").onclick=()=>downloadCsv(toCsv(),exportName());
 
 /* ---------- Recherche en ligne : Open Library + Google Books (aucune clé requise) ---------- */
 const jget=async u=>{const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()};
@@ -617,24 +671,29 @@ $("cList").onclick=e=>{const el=e.target.closest(".cand");if(!el)return;
 /* complétion automatique en lot */
 $("bAuto").onclick=async()=>{
   $("dlgS").close();
-  const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages));
+  /* kept by id: each result is written into the book as it is when the answer arrives (a sync may have replaced the list meanwhile) */
+  const todo=books.filter(b=>b.isbn&&(!b.resume||!b.nb_pages)).map(b=>({id:b.id,obj:b,isbn:b.isbn}));
   if(!todo.length)return alert("Rien à compléter : tous les livres avec ISBN ont déjà résumé et pages.");
   if(!confirm(`Interroger Open Library / Google Books pour ${todo.length} livres ? (les champs déjà remplis ne sont pas modifiés)`))return;
-  const p=$("prog");p.style.display="block";let ok=0;
-  for(let n=0;n<todo.length;n++){
-    p.textContent=`Complétion ${n+1}/${todo.length} — ${ok} complétés`;
-    const res=await lookup(todo[n].isbn);const before=JSON.stringify(todo[n]);
-    for(const c of res) applyTo(todo[n],c,false);
-    if(JSON.stringify(todo[n])!==before)ok++;
-    if(n%10===9)save();
-    await new Promise(r=>setTimeout(r,250));
-  }
+  /* 3 books at a time (polite with Open Library, Google Books and Sudoc); results kept on the device every 10 books, one upload at the end */
+  const p=$("prog");p.style.display="block";let ok=0,done=0,next=0;
+  p.textContent=`Complétion 0/${todo.length}`;
+  const worker=async()=>{
+    while(next<todo.length){
+      const t=todo[next++],res=await lookup(t.isbn),b=books[locate(t)];
+      if(b){const before=JSON.stringify(b);for(const c of res) applyTo(b,c,false);if(JSON.stringify(b)!==before)ok++}
+      if(++done%10===0)saveLocal();
+      p.textContent=`Complétion ${done}/${todo.length} — ${ok} complétés`;
+      await new Promise(r=>setTimeout(r,250));
+    }
+  };
+  await Promise.all([worker(),worker(),worker()]);
   save();render();p.textContent=`Terminé : ${ok} livres complétés sur ${todo.length}.`;setTimeout(()=>p.style.display="none",5000);
 };
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T15:45:07Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:47:21Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -654,6 +713,15 @@ const renderVer=()=>{
 /* dernier commit publié de l'application (dépôt public, sans jeton) ; alerte si la page chargée est plus ancienne */
 async function appVersion(){
   if(isOff()){renderVer();return}
+  /* version.json is written next to the page by the publication workflow (tools/stamp.sh): same site, no rate limit.
+     Without it (site published straight from the branch), the last commit of index.html is read through the GitHub API. */
+  try{
+    const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"}),v=r.ok?await r.json():null;
+    if(v&&v.build&&!isNaN(new Date(v.build))){
+      appInfo=new Date(v.build).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+(v.commit?" ("+String(v.commit).slice(0,7)+")":"");
+      localStorage.setItem("livrotheque.appinfo",appInfo);appStale=new Date(v.build)>new Date(APP_BUILD);staleCheckedAt=Date.now();renderVer();return;
+    }
+  }catch(e){}
   try{
     const r=await ghFetch("version publiée de l'application",`https://api.github.com/repos/${APP_REPO}/commits?path=index.html&per_page=1`);
     const [x]=r.ok?await r.json():[];
@@ -796,8 +864,10 @@ $("hDb").addEventListener("click",async ev=>{
 let goTo=u=>location.replace(u);
 async function forceUpdate(){
   try{
-    if("serviceWorker" in navigator)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
-    if(window.caches)for(const k of await caches.keys())await caches.delete(k);
+    /* this app only: other GitHub Pages projects of the same user share the origin, its service workers and its caches */
+    const scope=new URL("./",location.href).href;
+    if("serviceWorker" in navigator)for(const r of await navigator.serviceWorker.getRegistrations())if(r.scope===scope)await r.unregister();
+    if(window.caches)for(const k of await caches.keys())if(k.startsWith("livrotheque-"))await caches.delete(k);
   }catch(e){}
   window.__noPrompt=true;                                  // les modifications en attente restent sur l'appareil : pas de question au départ
   goTo(location.pathname+"?maj="+Date.now()+location.hash);
@@ -850,7 +920,8 @@ function renderGhLog(){
     return '<div class="ge"><span class="muted">'+esc(when)+'</span><span><code>'+esc(e.m)+'</code> '+esc(e.w)+(e.n>1?' <span class="muted">('+e.n+' requêtes)</span>':"")+'</span><span class="g-'+cls+'">'+esc(txt)+'</span><span class="muted">'+(e.n>1?"max ":"")+esc(dur)+'</span></div>'}).join("")+'</div>':"<span class='muted'>Aucune requête enregistrée sur cet appareil.</span>";
 }
 async function gh(method,body,id,kind,etag){
-  const c=cfg(id,kind),t0=Date.now(),H={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
+  /* reads use the "object" media type: documented by GitHub for files up to 100 MB (above 1 MB, content is "" and encoding "none": see fileBytes) */
+  const c=cfg(id,kind),t0=Date.now(),H={Authorization:"Bearer "+c.token,Accept:method==="GET"?"application/vnd.github.object+json":"application/vnd.github+json"};
   if(etag)H["If-None-Match"]=etag;                       // lecture conditionnelle : GitHub répond 304 (sans contenu) si le fichier n'a pas changé
   const r=await ghFetch(kind==="meta"?"informations de la bibliothèque":"base (CSV)",`https://api.github.com/repos/${c.repo}/contents/${encodeURI(c.path)}`+(method==="GET"?`?ref=${encodeURIComponent(c.branch)}`+(etag?"":`&t=${Date.now()}`):""),
     {method,headers:H,body:body&&JSON.stringify(body),cache:etag?"no-store":undefined});
@@ -862,6 +933,17 @@ async function gh(method,body,id,kind,etag){
 /* ETag de la dernière lecture complète de la base, valable seulement pour le format de fichier courant (sinon relecture complète) */
 const etagKey=()=>SK+lib()+".etag",SCHEMA=CSV_COLS.join(",");
 const getEtag=()=>{try{const o=JSON.parse(localStorage.getItem(etagKey()));return o&&o.s===SCHEMA&&o.e&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".sha")?o.e:""}catch(e){return ""}};
+/* Bytes of a file read with gh("GET"). Above 1 MB the Contents API returns no content: the bytes then come from the Git blob of
+   the same sha (raw, up to 100 MB). A failed or empty read throws, so a large file is never taken for an empty library. */
+async function fileBytes(f){
+  if(f.content)return b64dec(f.content);
+  if(f.encoding!=="none"&&!f.size)return new ArrayBuffer(0);   // really empty file
+  const c=cfg(),r=await ghFetch("base (CSV > 1 Mo)",`https://api.github.com/repos/${c.repo}/git/blobs/${encodeURIComponent(f.sha)}`,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github.raw+json"}});
+  if(!r.ok)throw new Error("fichier de plus de 1 Mo illisible, erreur "+r.status);   // no .status: must not be read as "file absent" (404)
+  const buf=await r.arrayBuffer();
+  if(!buf.byteLength)throw new Error("fichier de plus de 1 Mo reçu vide");
+  return buf;
+}
 async function pull(){
   if(!cfg().repo||!cfg().token||!lib())return;
   if(isOff()){offStatus();return}
@@ -876,7 +958,7 @@ async function pull(){
      sinon on relit le fichier (la copie locale peut avoir été lue par une ancienne version de la page, sans toutes les colonnes) */
     if(f.sha===localStorage.getItem(SK+lib()+".sha")&&localStorage.getItem(ck())!==null&&localStorage.getItem(SK+lib()+".dirty")==="1"){scheduleSync();return}
     const dirty=localStorage.getItem(SK+lib()+".dirty")==="1";
-    const incoming=parseCsv(b64dec(f.content)),dupFixed=fixDupIds(incoming);
+    const incoming=parseCsv(await fileBytes(f)),dupFixed=fixDupIds(incoming);
     if(!incoming.length&&books.length){setStatus("☁ le dépôt renvoie une liste vide : votre copie locale ("+books.length+" livres) est conservée","#f99");return}
     if(dirty){
       const ch=await resolveConflict(incoming);
@@ -912,11 +994,15 @@ async function push(){
      setStatus("☁ envoi annulé : "+books.length+" livre(s) au lieu de "+n+" — rien n'a été modifié dans le dépôt","#f99");return}}
   syncing=true;setStatus("☁ envoi…");
   try{
-    const r=await gh("PUT",{message:`chore: update library (${books.length} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
-    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".count",String(books.length));localStorage.setItem(SK+lib()+".pend","0");localStorage.removeItem(etagKey());retryN=0;clearTimeout(retryTimer);setStatus("☁ synchronisé");
+    const seq=editSeq,n=books.length;                   // state actually sent by this upload
+    const r=await gh("PUT",{message:`chore: update library (${n} books)`,content:b64enc(toCsv()),branch:cfg().branch,sha:localStorage.getItem(SK+lib()+".sha")||undefined});
+    localStorage.setItem(SK+lib()+".sha",r.content.sha);localStorage.setItem(SK+lib()+".count",String(n));localStorage.removeItem(etagKey());retryN=0;clearTimeout(retryTimer);
+    /* changes made during the upload are not in the file: they stay "to send" (page-close warning kept) and go in the next upload */
+    if(editSeq===seq){localStorage.setItem(SK+lib()+".dirty","0");localStorage.setItem(SK+lib()+".pend","0");setStatus("☁ synchronisé")}else scheduleSync();
   }catch(e){
-    if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");
-      if(confirm("Le dépôt a été modifié depuis un autre appareil.\nOK = recharger la version du dépôt (perd vos modifs locales)\nAnnuler = ne rien faire (exportez le CSV pour garder vos modifs)")){localStorage.setItem(SK+lib()+".dirty","0");await pull()}}
+    /* the file changed on another device: read it while keeping the local changes ("dirty"), so pull() opens the conflict dialog
+       (differences, download of this device's version, choice of the version to keep) */
+    if(e.status===409||e.status===422){setStatus("☁ conflit : le dépôt a été modifié ailleurs","#f99");await pull()}
     else{
       /* réseau injoignable ou bloqué (aucun code HTTP), ou erreur serveur 5xx : on réessaie seul, puis on propose un clic */
       const net=!e.status,transient=net||e.status>=500;
@@ -1049,18 +1135,20 @@ if(window.matchMedia){const mq=matchMedia("(max-width:900px)");(mq.addEventListe
 const CFG_TTL=24*3600*1000;
 const b64u=u=>btoa(String.fromCharCode.apply(null,u)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64u=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
-async function aesKey(pass,salt,usage){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,usage)}
+/* PBKDF2 iterations per link format: "e2" = current (600 000, OWASP figure for PBKDF2-HMAC-SHA256); "e" = links made before (200 000), still readable */
+const KDF_ITER={e:200000,e2:600000},SHARE_MIN=12;   // SHARE_MIN: minimum password length for a new link
+async function aesKey(pass,salt,usage,iterations){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,usage)}
 async function sealCfg(obj,pass){
   if(!pass)throw new Error("mot de passe obligatoire");
   const data=new TextEncoder().encode(JSON.stringify(obj));
   const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
-  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aesKey(pass,salt,["encrypt"]),data));
-  return "e."+b64u(salt)+"."+b64u(iv)+"."+b64u(ct);
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aesKey(pass,salt,["encrypt"],KDF_ITER.e2),data));
+  return "e2."+b64u(salt)+"."+b64u(iv)+"."+b64u(ct);
 }
 async function unsealCfg(s,askPass){
   const p=s.split(".");
-  if(p[0]==="e"&&p.length===4){const pass=askPass();if(!pass)throw new Error("mot de passe requis");
-    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(p[2])},await aesKey(pass,unb64u(p[1]),["decrypt"]),unb64u(p[3]));return JSON.parse(new TextDecoder().decode(pt))}
+  if(KDF_ITER.hasOwnProperty(p[0])&&p.length===4){const pass=askPass();if(!pass)throw new Error("mot de passe requis");
+    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(p[2])},await aesKey(pass,unb64u(p[1]),["decrypt"],KDF_ITER[p[0]]),unb64u(p[3]));return JSON.parse(new TextDecoder().decode(pt))}
   throw new Error("lien non chiffré ou format inconnu : refusé");
 }
 const fmtDT=t=>new Date(t).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});
@@ -1068,7 +1156,7 @@ const shMsg=(t,bad)=>{$("shMsg").textContent=t;$("shMsg").style.color=bad?"#c33"
 $("shGo").onclick=async()=>{
   const c=cfg();
   if(!c.repo||!c.token||!lib())return shMsg("Ouvrez d'abord une bibliothèque (dépôt, jeton et UUID requis).",1);
-  if($("shPass").value.length<6)return shMsg("Mot de passe obligatoire (6 caractères minimum) : le lien contient votre jeton GitHub, il est toujours chiffré.",1);
+  if($("shPass").value.length<SHARE_MIN)return shMsg("Mot de passe obligatoire ("+SHARE_MIN+" caractères minimum) : le lien contient votre jeton GitHub, il est toujours chiffré.",1);
   const exp=Date.now()+CFG_TTL,pass=$("shPass").value,o={v:1,repo:c.repo,token:c.token,branch:c.branch,lib:lib(),exp};
   if($("shKey").checked&&gKey())o.gkey=gKey();
   try{$("shLink").value=location.href.split("#")[0]+"#cfg="+await sealCfg(o,pass)}catch(e){return shMsg("Génération impossible : "+e.message,1)}

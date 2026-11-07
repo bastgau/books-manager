@@ -6,8 +6,8 @@ Scenario and unit tests for `index.html`. They never touch a real repository: Gi
 
 | Folder | Content |
 |---|---|
-| `unit/` | Node tests that load the page's script without a browser. `ids-and-csv.js` (UUIDv7 generator, CSV read/write/sort, history by id) reports pass/fail; `history.js` prints how change histories are decoded. |
-| `scenarios/` | Scripts run inside the page (headless Chrome): columns and form, locations, book ids, offline mode, conditional reads, stale page protection, first sync, network down, footer versions, GitHub request log. |
+| `unit/` | Node tests that load the page's script without a browser. `ids-and-csv.js` (UUIDv7 generator, CSV read/write/sort, history by id) and `share-link.js` (share link encryption) report pass/fail; `history.js` prints how change histories are decoded. |
+| `scenarios/` | Scripts run inside the page (headless Chrome): columns and form, locations, book ids, offline mode, conditional reads, stale page protection, first sync, network down, footer versions, GitHub request log, editing while a sync replaces the list, a change made during an upload, a repository file above 1 MB, an upload refused because the file changed elsewhere, search and export file name, repository covers, published version read from version.json, "Compléter via ISBN" in parallel. |
 | `seeds/` | Mock GitHub data sets (`fetch` replacement and initial `localStorage`) used by the scenarios. |
 | `data/make-sample-csv.js` | Generates the fictitious library (default 400 books, legacy format without `id`). |
 | `lib/mkpage.js` | Builds a copy of the page with the books, the seed and the scenario injected; the result is written in the page `<title>`. |
@@ -36,7 +36,7 @@ Useful variables: `CHROME`, `APP` (page to test, default `../index.html`), `BOOK
 ## What the results mean
 
 - `unit/ids-and-csv.js` fails with a non-zero exit code if a check fails.
-- Scenarios **print values to be read** (many are `true`/`false` or counts); they do not assert them. `run-all.sh` only reports a failure when a scenario produces no output (page crashed or stuck) or reports an `erreur`. After a change, read the printed lines and compare with the previous run.
+- Scenarios **print values to be read** (many are `true`/`false` or counts); they do not assert them. `run-all.sh` only reports a failure when a scenario produces no output (page crashed or stuck), does not reach its end (no result: virtual time budget too short; a long scenario gets its own budget as a 3rd value in the `SCENARIOS` list) or reports an `erreur`. After a change, read the printed lines and compare with the previous run.
 - A sample of about 400 books is enough for every scenario. With all 1 199 books of a real library, headless Chrome can run out of memory on small machines and the page crashes without output.
 
 ## Not covered

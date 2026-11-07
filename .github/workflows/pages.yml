@@ -1,0 +1,59 @@
+# Runs the tests on every push and pull request; on main, publishes the site on GitHub Pages with the version stamped
+# (APP_BUILD in index.html, BUILD in sw.js). Requires Settings > Pages > Source = "GitHub Actions".
+name: Tests and Pages
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install headless Chrome
+        run: |
+          npx -y playwright@1.63.0 install --with-deps chromium-headless-shell
+          echo "CHROME=$(find ~/.cache/ms-playwright -name chrome-headless-shell -type f | head -1)" >> "$GITHUB_ENV"
+      - name: Unit tests, scenarios and service worker test
+        run: SW=1 TEST_OUT="$RUNNER_TEMP/livrotheque-tests" tests/run-all.sh
+      - name: Keep scenario outputs (values to read)
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-output
+          path: ${{ runner.temp }}/livrotheque-tests/*.txt
+          if-no-files-found: ignore
+
+  deploy:
+    # published only from main, and only when the tests ran without error
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Stamp the version into the published copy
+        run: tools/stamp.sh "$RUNNER_TEMP/site"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+      - id: deployment
+        uses: actions/deploy-pages@v4
