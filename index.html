@@ -338,7 +338,7 @@ const ck=()=>KEY+"."+(lib()||"local");
 let books=JSON.parse(localStorage.getItem(ck())||"[]"), sortKey="auteur", sortDir=1, curRef=null;
 const $=id=>document.getElementById(id);
 let editSeq=0;   // counts local changes: an upload only marks as sent the changes made before it started
-const save=()=>{editSeq++;try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
+const save=()=>{editSeq++;searchCache=new WeakMap();try{localStorage.setItem(ck(),JSON.stringify(books))}catch(e){alert("Stockage du navigateur plein : exportez le CSV !")}localStorage.setItem(SK+lib()+".dirty","1");if(isOff()&&lib())localStorage.setItem(SK+lib()+".pend",String((+localStorage.getItem(SK+lib()+".pend")||0)+1));scheduleSync()};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));   // ' too: safe in single-quoted attributes
 const dkey=d=>{const m=/^(\d\d)\/(\d\d)\/(\d{4})$/.exec(d||"");return m?m[3]+m[2]+m[1]:""};
 const cleanIsbn=s=>(s||"").replace(/[^0-9Xx]/g,"").toUpperCase();
@@ -368,6 +368,11 @@ function toCsv(list=books){
 /* ---------- Affichage ---------- */
 const WIDTHS={auteur:"190px",titre:"310px",date_lecture:"100px",nb_pages:"70px",localisation:"150px",resume:"72px",isbn:"132px",date_entree:"100px",a_garder:"96px"};
 const norm=s=>String(s||"").replace(/^\s*\([^)]*\)\s*/,"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+/* search: lowercase without accents ("eloise" finds "Éloïse"); punctuation kept, unlike nk(). Each book's searchable text is
+   computed once and cached per book object; save() clears the cache, since some changes edit a book in place. */
+const fold=s=>String(s??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+let searchCache=new WeakMap();
+const searchText=b=>{let t=searchCache.get(b);if(t===undefined){t=COLS.map(([k])=>fold(b[k])).join("\n");searchCache.set(b,t)}return t};
 const letterOf=s=>{const c=norm(s).charAt(0).toUpperCase();return /[A-Z]/.test(c)?c:"#"};
 const expanded=new Set();
 let letters=[];
@@ -378,11 +383,11 @@ function render(){
   const cols=SHOW.map(k=>COLS.find(c=>c[0]===k)).filter(c=>c&&(!mobile||c[0]==="auteur"||c[0]==="titre"||c[0]==="resume"));
   const W=mobile?{auteur:"34%",titre:"auto",resume:"46px"}:WIDTHS;
   $("thead").innerHTML=`<th style="width:${mobile?52:56}px"></th>`+cols.map(([k,l])=>`<th data-k="${k}" style="width:${W[k]||"auto"}">${mobile&&k==="resume"?"📝":l}${sortKey===k?(sortDir>0?" ▲":" ▼"):""}</th>`).join("");
-  const q=$("q").value.toLowerCase().trim();
+  const q=fold($("q").value).trim();
   const dupSet=dupIndexes();
   const filtering=!!q; // la recherche texte ouvre tout ; les cases à cocher laissent plier/déplier
   let list=books.map((b,i)=>[b,i]).filter(([b,i])=>
-    (!q||COLS.some(([k])=>String(b[k]).toLowerCase().includes(q)))&&
+    (!q||searchText(b).includes(q))&&
     (!$("fNoIsbn").checked||!b.isbn)&&(!$("fNoRes").checked||!b.resume)&&(!$("fUnread").checked||!b.date_lecture)&&(!$("fCheck").checked||b.a_verifier)&&(!$("fDup").checked||dupSet.has(i)));
   const val=b=>/^date_/.test(sortKey)?dkey(b[sortKey]):sortKey==="nb_pages"?(+b.nb_pages||0):/^(auteur|titre)$/.test(sortKey)?norm(b[sortKey]).toLowerCase():String(b[sortKey]).toLowerCase();
   list.sort((a,b)=>{const x=val(a[0]),y=val(b[0]);return (x<y?-1:x>y?1:0)*sortDir||String(a[0].titre).localeCompare(String(b[0].titre))});
@@ -652,7 +657,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T20:26:45Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T20:28:15Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
