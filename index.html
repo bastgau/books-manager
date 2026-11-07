@@ -213,7 +213,7 @@ dialog h4{margin:14px 0 4px}
   </fieldset>
   <fieldset><legend>Partager la configuration (lien valable 24 h)</legend>
     <div class="grid">
-      <label>Mot de passe</label><input id="shPass" type="password" placeholder="obligatoire (6 caractères min.), chiffre le lien" autocomplete="new-password">
+      <label>Mot de passe</label><input id="shPass" type="password" placeholder="obligatoire (12 caractères min.), chiffre le lien" autocomplete="new-password">
       <label>Clé Google</label><label style="font-weight:normal"><input type="checkbox" id="shKey"> inclure dans le lien</label>
     </div>
     <div class="row" style="justify-content:flex-start"><button id="shGo" class="sec">Générer le lien</button><button id="shCopy" class="sec">Copier</button></div>
@@ -648,7 +648,7 @@ $("bAuto").onclick=async()=>{
 
 /* ---------- Synchronisation GitHub (dépôt privé, API Contents) ---------- */
 const cfg=(id,kind)=>({repo:localStorage.getItem(SK+"repo")||"",token:localStorage.getItem(SK+"token")||"",path:"libraries/"+(id||lib())+(kind==="meta"?"-metadata.json":"-database.csv"),branch:localStorage.getItem(SK+"branch")||"main"});
-const APP_BUILD="2026-11-07T19:39:48Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
+const APP_BUILD="2026-11-07T19:43:33Z"; /* horodatage de publication (UTC), mis à jour à chaque version */
 const APP_REPO="bastgau/books-manager";
 const fmtCommit=x=>new Date(x.commit.committer.date).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})+" ("+x.sha.slice(0,7)+")";
 let dbInfo="",appInfo="",appStale=false,staleCheckedAt=0;
@@ -1078,18 +1078,20 @@ if(window.matchMedia){const mq=matchMedia("(max-width:900px)");(mq.addEventListe
 const CFG_TTL=24*3600*1000;
 const b64u=u=>btoa(String.fromCharCode.apply(null,u)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64u=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
-async function aesKey(pass,salt,usage){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,usage)}
+/* PBKDF2 iterations per link format: "e2" = current (600 000, OWASP figure for PBKDF2-HMAC-SHA256); "e" = links made before (200 000), still readable */
+const KDF_ITER={e:200000,e2:600000},SHARE_MIN=12;   // SHARE_MIN: minimum password length for a new link
+async function aesKey(pass,salt,usage,iterations){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,usage)}
 async function sealCfg(obj,pass){
   if(!pass)throw new Error("mot de passe obligatoire");
   const data=new TextEncoder().encode(JSON.stringify(obj));
   const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
-  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aesKey(pass,salt,["encrypt"]),data));
-  return "e."+b64u(salt)+"."+b64u(iv)+"."+b64u(ct);
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aesKey(pass,salt,["encrypt"],KDF_ITER.e2),data));
+  return "e2."+b64u(salt)+"."+b64u(iv)+"."+b64u(ct);
 }
 async function unsealCfg(s,askPass){
   const p=s.split(".");
-  if(p[0]==="e"&&p.length===4){const pass=askPass();if(!pass)throw new Error("mot de passe requis");
-    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(p[2])},await aesKey(pass,unb64u(p[1]),["decrypt"]),unb64u(p[3]));return JSON.parse(new TextDecoder().decode(pt))}
+  if(KDF_ITER.hasOwnProperty(p[0])&&p.length===4){const pass=askPass();if(!pass)throw new Error("mot de passe requis");
+    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(p[2])},await aesKey(pass,unb64u(p[1]),["decrypt"],KDF_ITER[p[0]]),unb64u(p[3]));return JSON.parse(new TextDecoder().decode(pt))}
   throw new Error("lien non chiffré ou format inconnu : refusé");
 }
 const fmtDT=t=>new Date(t).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});
@@ -1097,7 +1099,7 @@ const shMsg=(t,bad)=>{$("shMsg").textContent=t;$("shMsg").style.color=bad?"#c33"
 $("shGo").onclick=async()=>{
   const c=cfg();
   if(!c.repo||!c.token||!lib())return shMsg("Ouvrez d'abord une bibliothèque (dépôt, jeton et UUID requis).",1);
-  if($("shPass").value.length<6)return shMsg("Mot de passe obligatoire (6 caractères minimum) : le lien contient votre jeton GitHub, il est toujours chiffré.",1);
+  if($("shPass").value.length<SHARE_MIN)return shMsg("Mot de passe obligatoire ("+SHARE_MIN+" caractères minimum) : le lien contient votre jeton GitHub, il est toujours chiffré.",1);
   const exp=Date.now()+CFG_TTL,pass=$("shPass").value,o={v:1,repo:c.repo,token:c.token,branch:c.branch,lib:lib(),exp};
   if($("shKey").checked&&gKey())o.gkey=gKey();
   try{$("shLink").value=location.href.split("#")[0]+"#cfg="+await sealCfg(o,pass)}catch(e){return shMsg("Génération impossible : "+e.message,1)}

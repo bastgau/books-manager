@@ -6,6 +6,7 @@ ONLY=("$@"); HERE="$(cd "$(dirname "$0")" && pwd)"; OUT="${TEST_OUT:-${TMPDIR:-/
 SCENARIOS=("columns-and-form gh" "locations gh" "book-ids ids" "github-log ids" "offline-mode offm" "update-link offm" "conditional-read etag" "stale-page stale" "first-sync first" "network-down off" "footer-versions ver" "edit-during-sync editsync" "push-race editsync" "large-file large")
 echo "##### Tests unitaires"
 node "$HERE/unit/ids-and-csv.js" | tail -4 || FAIL=1
+node "$HERE/unit/share-link.js" | tail -3 || FAIL=1
 node "$HERE/unit/history.js" > "$OUT/history.txt" 2>&1 && echo "history.js : $(grep -c '→' "$OUT/history.txt") cas lus, sans erreur" || { echo "history.js : ÉCHEC"; tail -5 "$OUT/history.txt"; FAIL=1; }
 for entry in "${SCENARIOS[@]}"; do
   set -- $entry; name=$1; seed=$2
